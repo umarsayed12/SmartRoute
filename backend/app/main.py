@@ -1,13 +1,26 @@
-"""Create the FastAPI application and report backend and Ollama health."""
+"""Initialize storage, register API routes, and report backend and Ollama health."""
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import db
 from app.api.chat import router as chat_router
+from app.api.stats import router as stats_router
 from app.config import settings
 
-app = FastAPI(title="SmartRoute", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Initialize the request database before the application accepts traffic."""
+    db.init_db()
+    yield
+
+
+app = FastAPI(title="SmartRoute", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -15,6 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(chat_router)
+app.include_router(stats_router)
 
 
 @app.get("/health")

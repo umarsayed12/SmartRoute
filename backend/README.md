@@ -2,9 +2,9 @@
 # SmartRoute Backend
 
 FastAPI foundation with environment-driven model tiers and async Ollama and
-OpenAI-compatible providers. Phase 5 exposes `/health` and
+OpenAI-compatible providers. Phase 6 exposes `/health` and
 `POST /v1/chat/completions` with heuristic routing, confidence-based escalation,
-and fixed-tier modes.
+fixed-tier modes, and a searchable SQLite request history.
 
 ## Setup (Windows PowerShell)
 
@@ -79,8 +79,9 @@ output prices to the provider's actual USD price per 1,000 tokens.
 
 Reference prices default to $0.0025 input and $0.010 output per 1,000 tokens.
 The confidence threshold defaults to 0.6 and `MAX_ESCALATIONS` defaults to 1;
-setting it to 0 disables escalation. Database and learned-model paths are
-configuration for subsequent phases. Relative paths assume the backend working
+setting it to 0 disables escalation. `DB_PATH` defaults to `data/smartroute.db`,
+which is initialized automatically on startup. The learned-model path is
+configuration for a subsequent phase. Relative paths assume the backend working
 directory.
 
 ## OpenAI-Compatible Chat
@@ -176,6 +177,47 @@ is medium when large is disabled, otherwise large. This is a routing convention,
 not a calibrated probability or a guarantee that the answer is correct. Lower
 tiers are local Ollama models, so their auxiliary self-checks do not incur fees.
 
+## Request History
+
+Every successful chat completion queues one SQLite row with its full conversation,
+final answer, features, routing decisions, final token counts, total routing latency,
+and actual/reference costs. The row's `id` matches the completion ID and
+`smartroute.request_id`. Rejected requests and provider failures are not stored as
+completed answers. Logging runs through `BackgroundTasks` after the HTTP response,
+so history can briefly lag the reply; pending writes are not a durable queue.
+
+Set the optional `X-SmartRoute-Source` header to `api`, `playground`, `testlab`, or
+`sdk`. It defaults to `api`; unknown values return HTTP 422 before calling a model.
+The database uses WAL mode and a separate, closed connection for each operation.
+Full conversations and answers are stored unencrypted locally; runtime database
+files are gitignored.
+
+`GET /v1/requests` returns `{items, total, limit, offset}`, newest first. `total`
+counts all matching rows before pagination. Supported query parameters:
+
+| Parameter | Behavior |
+| --- | --- |
+| `limit` | Page size, 1-100; default 50 |
+| `offset` | Number of matching rows to skip; default 0 |
+| `tier` | Final tier: small, medium, or large |
+| `escalated` | `true` or `false` |
+| `feedback` | `1` positive, `-1` negative, `0` unrated; omit for all |
+| `search` | Literal substring in stored prompt or answer; SQLite ASCII case folding |
+
+List items contain previews and metadata, not full prompts, answers, or feature
+vectors. `GET /v1/requests/{id}` returns the complete record or HTTP 404. In the
+detail record, `prompt_full` is JSON text preserving message roles and content,
+`features_json` is JSON text containing the numeric feature dictionary, and
+`answer_full` is the final answer text. Previews use the latest user message,
+normalize whitespace, and are limited to 200 characters. Timestamps are UTC.
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8000/v1/requests?limit=10&escalated=false&feedback=0'
+```
+
+The database feedback and training-row helpers are ready; the public feedback
+endpoint and learned router arrive in Phase 7.
+
 ## Provider Smoke Check
 
 After pulling the small model, run from `backend/`:
@@ -201,5 +243,7 @@ provider errors, health checks, CORS, chat validation, and official OpenAI SDK
 compatibility, plus feature signals, rule boundaries, provider selection, and
 large-tier fallback/costs. Confidence tests cover penalties, parsing failures,
 top-tier behavior, forced modes, escalation limits, and cumulative costs/timing.
-VS Code also has `install: backend` and `test: backend` tasks, using the same
-virtual environment.
+Request-log tests cover round trips, startup, source labels, safe filters,
+pagination, concurrent inserts, and full-detail retrieval. Every test uses an
+isolated temporary database rather than the local request history. VS Code also
+has `install: backend` and `test: backend` tasks, using the same virtual environment.

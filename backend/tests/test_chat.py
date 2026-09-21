@@ -1,19 +1,20 @@
-"""Verify chat compatibility, forced routing, confidence cascades, and costs."""
+"""Verify chat compatibility, routing, costs, and complete background request logs."""
 
-from collections.abc import AsyncIterator
+import json
+from datetime import datetime
 from time import time
 from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
-import pytest_asyncio
 from openai import AsyncOpenAI, BadRequestError
 
+from app import db
 from app.config import Settings
-from app.main import app
 from app.providers.base import ProviderResult
 from app.routing import confidence
 from app.routing import router as routing_router
+from app.routing.features import extract_features
 
 
 @pytest.fixture
@@ -31,15 +32,6 @@ def provider(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     ))
     monkeypatch.setattr(routing_router.ollama, "chat", mocked)
     return mocked
-
-
-@pytest_asyncio.fixture
-async def client() -> AsyncIterator[httpx.AsyncClient]:
-    """Call the real ASGI application with an in-process HTTP client."""
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as connection:
-        yield connection
 
 
 @pytest.mark.asyncio
@@ -125,6 +117,7 @@ async def test_streaming_is_rejected(
     assert response.status_code == 400
     assert "Streaming" in response.json()["detail"]
     provider.assert_not_awaited()
+    assert db.list_requests()["total"] == 0
 
 
 @pytest.mark.asyncio
@@ -142,6 +135,7 @@ async def test_invalid_chat_requests(
 
     assert response.status_code == 422
     provider.assert_not_awaited()
+    assert db.list_requests()["total"] == 0
 
 
 @pytest.mark.asyncio
@@ -171,6 +165,7 @@ async def test_provider_failures(
 
     assert response.status_code == expected_status
     assert "private upstream detail" not in response.text
+    assert db.list_requests()["total"] == 0
 
 
 @pytest.mark.asyncio
@@ -458,3 +453,66 @@ async def test_real_confidence_drives_cascade(
     assert question in checking_prompt
     assert "Hello" not in checking_prompt
     assert provider.await_args_list[2].kwargs["messages"] == messages
+    assert db.list_requests()["total"] == 1
+    stored = db.get_request(data["id"])
+    assert stored is not None
+    assert stored["answer_full"] == "Paris is the capital of France."
+    assert stored["escalated"] is True
+    assert stored["prompt_tokens"] == 20
+    assert stored["completion_tokens"] == 8
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", [None, "api", "playground", "testlab", "sdk"])
+async def test_background_request_log(
+    client: httpx.AsyncClient, provider: AsyncMock, source: str | None
+) -> None:
+    """Persist the complete conversation, feature vector, and returned routing metadata."""
+    latest_prompt = "Latest caf\u00e9 question.\n" * 20
+    messages = [
+        {"role": "system", "content": "Be concise."},
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hello!"},
+        {"role": "user", "content": latest_prompt},
+    ]
+    headers = {"X-SmartRoute-Source": source} if source is not None else {}
+    response = await client.post("/v1/chat/completions", headers=headers, json={
+        "model": "smartroute/small", "messages": messages,
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    detail = await client.get(f"/v1/requests/{data['id']}")
+    assert detail.status_code == 200
+    stored = detail.json()
+    assert stored["id"] == data["id"]
+    assert stored["source"] == (source or "api")
+    assert stored["prompt_preview"] == " ".join(latest_prompt.split())[:200]
+    assert json.loads(stored["prompt_full"]) == messages
+    assert json.loads(stored["features_json"]) == extract_features(messages)
+    assert stored["answer_full"] == data["choices"][0]["message"]["content"]
+    assert stored["prompt_tokens"] == data["usage"]["prompt_tokens"]
+    assert stored["completion_tokens"] == data["usage"]["completion_tokens"]
+    created_at = datetime.fromisoformat(stored["created_at"])
+    assert created_at.utcoffset().total_seconds() == 0
+    assert int(created_at.timestamp()) == data["created"]
+    assert stored["feedback"] is None
+    assert stored["feedback_note"] is None
+    for field, value in data["smartroute"].items():
+        assert stored["id" if field == "request_id" else field] == value
+    assert db.list_requests()["total"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["unknown", ""])
+async def test_invalid_request_source(
+    client: httpx.AsyncClient, provider: AsyncMock, source: str
+) -> None:
+    """Reject unknown source labels before model execution or request logging."""
+    response = await client.post("/v1/chat/completions", json={
+        "model": "smartroute/auto", "messages": [{"role": "user", "content": "Hello"}],
+    }, headers={"X-SmartRoute-Source": source})
+
+    assert response.status_code == 422
+    provider.assert_not_awaited()
+    assert db.list_requests()["total"] == 0

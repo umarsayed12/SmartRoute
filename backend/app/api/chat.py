@@ -1,10 +1,14 @@
-"""Serve non-streaming OpenAI-compatible completions through the tier router."""
+"""Serve OpenAI-compatible completions and queue their full routing records."""
 
-from time import time
+import json
+from datetime import datetime, timezone
+from typing import Annotated, Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
 
+from app import db
+from app.routing.features import extract_features
 from app.routing.router import route_and_answer
 from app.schemas import (
     ChatCompletionRequest,
@@ -18,12 +22,18 @@ router = APIRouter(prefix="/v1", tags=["chat"])
 
 
 @router.post("/chat/completions", response_model=ChatCompletionResponse)
-async def create_chat_completion(request: ChatCompletionRequest) -> ChatCompletionResponse:
-    """Route a supported request and return an OpenAI-shaped completion."""
+async def create_chat_completion(
+    request: ChatCompletionRequest,
+    background_tasks: BackgroundTasks,
+    source: Annotated[
+        Literal["api", "playground", "testlab", "sdk"], Header(alias="X-SmartRoute-Source")
+    ] = "api",
+) -> ChatCompletionResponse:
+    """Route a request, return its completion, and log it after the response."""
     if request.stream:
         raise HTTPException(status_code=400, detail="Streaming is not supported yet.")
 
-    created = int(time())
+    created_at = datetime.now(timezone.utc)
     try:
         result, routing = await route_and_answer(request)
     except httpx.TimeoutException as error:
@@ -39,9 +49,9 @@ async def create_chat_completion(request: ChatCompletionRequest) -> ChatCompleti
             detail="Model provider rejected the request. Check its model and credentials.",
         ) from error
 
-    return ChatCompletionResponse(
+    response = ChatCompletionResponse(
         id=routing.request_id,
-        created=created,
+        created=int(created_at.timestamp()),
         model=result.model,
         choices=[Choice(message=ChatMessage(role="assistant", content=result.content))],
         usage=Usage(
@@ -51,3 +61,21 @@ async def create_chat_completion(request: ChatCompletionRequest) -> ChatCompleti
         ),
         smartroute=routing,
     )
+    messages = [message.model_dump() for message in request.messages]
+    latest_prompt = next(
+        (message["content"] for message in reversed(messages) if message["role"] == "user"),
+        messages[-1]["content"],
+    )
+    background_tasks.add_task(db.insert_request, {
+        "id": routing.request_id,
+        "created_at": created_at.isoformat(),
+        "prompt_preview": " ".join(latest_prompt.split())[:200],
+        "prompt_full": json.dumps(messages, ensure_ascii=False),
+        "answer_full": result.content,
+        "features_json": json.dumps(extract_features(messages)),
+        **routing.model_dump(exclude={"request_id"}),
+        "prompt_tokens": result.prompt_tokens,
+        "completion_tokens": result.completion_tokens,
+        "source": source,
+    })
+    return response
