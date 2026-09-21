@@ -2,8 +2,8 @@
 # SmartRoute Backend
 
 FastAPI foundation with environment-driven model tiers and async Ollama and
-OpenAI-compatible providers. Phase 2 exposes `/health`; the chat endpoint is
-planned for Phase 3.
+OpenAI-compatible providers. Phase 3 exposes `/health` and
+`POST /v1/chat/completions`, currently using only the small tier.
 
 ## Setup (Windows PowerShell)
 
@@ -81,6 +81,45 @@ Confidence defaults to 0.6 with one escalation. These and the database/model
 paths are configuration for subsequent phases; routing and persistence are not
 implemented yet. Relative data paths assume the backend working directory.
 
+## OpenAI-Compatible Chat
+
+With Ollama, the small model, and the backend running, use the official OpenAI
+SDK example from `backend/`:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/try_openai_sdk.py
+```
+
+The `openai` package is included in the backend requirements. The example points
+at `http://localhost:8000/v1`, uses `api_key="not-needed"`, and prints both the
+answer and `response.model_extra["smartroute"]` metadata.
+
+For a direct HTTP request in PowerShell:
+
+```powershell
+$body = @{
+	model = "smartroute/auto"
+	messages = @(@{ role = "user"; content = "Hello!" })
+	temperature = 0.2
+	max_tokens = 64
+} | ConvertTo-Json -Depth 5
+Invoke-RestMethod http://127.0.0.1:8000/v1/chat/completions -Method Post -ContentType "application/json" -Body $body -TimeoutSec 180
+```
+
+Responses contain OpenAI's `id`, `object`, `created`, `model`, `choices`, and
+`usage`, plus a `smartroute` object with the request ID, chosen/final tier,
+escalation flag, confidence, reason, routing mode, latency, and actual/reference
+costs. Token counts come from Ollama. Local model usage costs $0; reference cost
+uses the configured premium prices.
+
+All requested model names currently select small, including names such as
+`smartroute/large`. Tier selection and forced routing arrive in later phases.
+The routing mode is `single_tier`, and confidence is `null` until confidence
+scoring is implemented. Requests must include a model and at least one text
+message. Streaming (`stream=true`) returns HTTP 400 without calling Ollama.
+Provider connection failures return 503, timeouts return 504, and provider HTTP
+errors return 502; pull the small model if Ollama reports that it is missing.
+
 ## Provider Smoke Check
 
 After pulling the small model, run from `backend/`:
@@ -102,5 +141,6 @@ connection errors propagate to the caller.
 
 Tests use mocked HTTP responses and require neither Ollama nor remote credentials.
 They cover tier configuration and fallback, request payloads, token accounting,
-provider errors, health checks, and CORS. VS Code also has `install: backend` and
-`test: backend` tasks, using the same virtual environment.
+provider errors, health checks, CORS, chat validation, and official OpenAI SDK
+compatibility. VS Code also has `install: backend` and `test: backend` tasks,
+using the same virtual environment.
