@@ -1,0 +1,1 @@
+"""Async model provider adapters sharing a normalized result type."""

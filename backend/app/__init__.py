@@ -1,0 +1,1 @@
+"""SmartRoute backend application and shared configuration."""
