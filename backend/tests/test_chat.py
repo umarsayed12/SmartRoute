@@ -1,4 +1,4 @@
-"""Verify chat response compatibility, single-tier behavior, and API errors."""
+"""Verify chat compatibility, heuristic provider selection, and API errors."""
 
 from collections.abc import AsyncIterator
 from time import time
@@ -9,10 +9,10 @@ import pytest
 import pytest_asyncio
 from openai import AsyncOpenAI, BadRequestError
 
-from app.api import chat
 from app.config import Settings
 from app.main import app
 from app.providers.base import ProviderResult
+from app.routing import router as routing_router
 
 
 @pytest.fixture
@@ -20,12 +20,12 @@ def provider(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     """Use deterministic settings and a stubbed provider without network access."""
     for name in Settings.model_fields:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(chat, "settings", Settings(_env_file=None))
+    monkeypatch.setattr(routing_router, "settings", Settings(_env_file=None))
     mocked = AsyncMock(return_value=ProviderResult(
         content="Hello!", prompt_tokens=12, completion_tokens=3,
         latency_ms=17, model="qwen2.5:1.5b",
     ))
-    monkeypatch.setattr(chat.ollama, "chat", mocked)
+    monkeypatch.setattr(routing_router.ollama, "chat", mocked)
     return mocked
 
 
@@ -43,7 +43,7 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
 async def test_chat_response(
     client: httpx.AsyncClient, provider: AsyncMock, model: str
 ) -> None:
-    """Every model name currently uses small and returns the full completion shape."""
+    """Greetings route to small; requested model names do not force a tier yet."""
     before = int(time())
     response = await client.post("/v1/chat/completions", json={
         "model": model,
@@ -69,7 +69,7 @@ async def test_chat_response(
     assert routing["tier_chosen"] == routing["tier_final"] == "small"
     assert routing["escalated"] is False
     assert routing["confidence"] is None
-    assert routing["routing_mode"] == "single_tier"
+    assert routing["routing_mode"] == "heuristic"
     assert routing["reason"]
     assert routing["latency_ms"] == 17
     assert routing["actual_cost_usd"] == 0
@@ -211,4 +211,80 @@ async def test_openai_sdk_rejects_streaming(
             )
 
     assert caught.value.status_code == 400
+    provider.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("prompt", "chosen_tier", "reason_cue"), [
+    ("Explain recursion", "medium", "reasoning"),
+    ("Give me a detailed essay on databases", "large", "disabled"),
+])
+async def test_heuristic_medium_and_disabled_large(
+    client: httpx.AsyncClient, provider: AsyncMock,
+    prompt: str, chosen_tier: str, reason_cue: str,
+) -> None:
+    """Select medium directly or resolve disabled large without an escalation."""
+    provider.return_value.model = "qwen2.5:7b"
+    response = await client.post("/v1/chat/completions", json={
+        "model": "smartroute/small",
+        "messages": [{"role": "user", "content": prompt}],
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["model"] == "qwen2.5:7b"
+    routing = data["smartroute"]
+    assert routing["tier_chosen"] == chosen_tier
+    assert routing["tier_final"] == "medium"
+    assert routing["routing_mode"] == "heuristic"
+    assert routing["escalated"] is False
+    assert routing["confidence"] is None
+    assert routing["actual_cost_usd"] == 0
+    assert reason_cue in routing["reason"]
+    provider.assert_awaited_once_with(
+        model="qwen2.5:7b", messages=[{"role": "user", "content": prompt}],
+        temperature=0.2, max_tokens=None, base_url="http://localhost:11434",
+    )
+
+
+@pytest.mark.asyncio
+async def test_enabled_large_provider_and_costs(
+    client: httpx.AsyncClient, provider: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Use remote configuration and actual usage prices when large is enabled."""
+    monkeypatch.setattr(routing_router, "settings", Settings(
+        _env_file=None,
+        LARGE_MODEL="example-large", LARGE_BASE_URL="https://example.test/v1",
+        LARGE_API_KEY="test-only-key", LARGE_INPUT_PRICE=0.1, LARGE_OUTPUT_PRICE=0.2,
+        REFERENCE_INPUT_PRICE_PER_1K=0.5, REFERENCE_OUTPUT_PRICE_PER_1K=1.0,
+    ))
+    remote_provider = AsyncMock(return_value=ProviderResult(
+        content="A detailed answer.", prompt_tokens=20, completion_tokens=10,
+        latency_ms=45, model="example-large-version",
+    ))
+    monkeypatch.setattr(routing_router.openai_compatible, "chat", remote_provider)
+    messages = [{"role": "user", "content": "Write a detailed essay"}]
+
+    response = await client.post("/v1/chat/completions", json={
+        "model": "smartroute/auto", "messages": messages,
+        "temperature": 0.7, "max_tokens": 64,
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["model"] == "example-large-version"
+    assert data["usage"]["total_tokens"] == 30
+    routing = data["smartroute"]
+    assert routing["tier_chosen"] == routing["tier_final"] == "large"
+    assert routing["routing_mode"] == "heuristic"
+    assert routing["escalated"] is False
+    assert routing["confidence"] is None
+    assert routing["latency_ms"] == 45
+    assert routing["actual_cost_usd"] == pytest.approx(0.004)
+    assert routing["reference_cost_usd"] == pytest.approx(0.020)
+    assert "test-only-key" not in response.text
+    remote_provider.assert_awaited_once_with(
+        model="example-large", messages=messages, temperature=0.7, max_tokens=64,
+        base_url="https://example.test/v1", api_key="test-only-key",
+    )
     provider.assert_not_awaited()
