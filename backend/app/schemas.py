@@ -1,8 +1,8 @@
-"""OpenAI-style chat models with additional SmartRoute routing metadata."""
+"""Chat, feedback, and routing schemas for the SmartRoute API."""
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ChatMessage(BaseModel):
@@ -63,3 +63,19 @@ class ChatCompletionResponse(BaseModel):
     choices: list[Choice]
     usage: Usage
     smartroute: RoutingInfo
+
+
+class FeedbackRequest(BaseModel):
+    """Attach a positive or negative integer rating to a completed request."""
+
+    request_id: str = Field(min_length=1)
+    score: int = Field(strict=True, ge=-1, le=1)
+    note: str | None = None
+
+    @field_validator("score")
+    @classmethod
+    def validate_score(cls, score: int) -> int:
+        """Reject zero so feedback always represents a positive or negative rating."""
+        if score == 0:
+            raise ValueError("Feedback score must be -1 or 1.")
+        return score

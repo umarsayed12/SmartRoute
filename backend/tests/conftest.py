@@ -1,4 +1,4 @@
-"""Share an ASGI client and keep tests isolated from the user's request database."""
+"""Share an ASGI client and isolate request data and trained model artifacts in tests."""
 
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -13,9 +13,10 @@ from app.main import app
 
 @pytest.fixture(autouse=True)
 def isolated_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Point database operations at a separate temporary file for every test."""
+    """Point database and model operations at separate temporary paths for every test."""
     path = tmp_path / "smartroute.db"
     monkeypatch.setattr(db.settings, "DB_PATH", path)
+    monkeypatch.setattr(db.settings, "MODEL_PATH", tmp_path / "router_model.joblib")
     return path
 
 

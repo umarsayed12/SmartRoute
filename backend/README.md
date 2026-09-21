@@ -2,9 +2,9 @@
 # SmartRoute Backend
 
 FastAPI foundation with environment-driven model tiers and async Ollama and
-OpenAI-compatible providers. Phase 6 exposes `/health` and
-`POST /v1/chat/completions` with heuristic routing, confidence-based escalation,
-fixed-tier modes, and a searchable SQLite request history.
+OpenAI-compatible providers. Phase 7 adds feedback and a trainable routing policy
+to `/health`, chat completions, confidence-based escalation, fixed-tier modes,
+and searchable SQLite request history.
 
 ## Setup (Windows PowerShell)
 
@@ -81,13 +81,13 @@ Reference prices default to $0.0025 input and $0.010 output per 1,000 tokens.
 The confidence threshold defaults to 0.6 and `MAX_ESCALATIONS` defaults to 1;
 setting it to 0 disables escalation. `DB_PATH` defaults to `data/smartroute.db`,
 which is initialized automatically on startup. The learned-model path is
-configuration for a subsequent phase. Relative paths assume the backend working
-directory.
+`MODEL_PATH` (default `data/router_model.joblib`). Relative paths assume the
+backend working directory.
 
 ## OpenAI-Compatible Chat
 
 With Ollama, both local models, and the backend running, use the official OpenAI
-SDK example from `backend/`. Its explanation prompt now selects medium:
+SDK example from `backend/`. Before training, its explanation prompt selects medium:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/try_openai_sdk.py
@@ -117,12 +117,12 @@ cost sums all answer attempts; reference cost uses only the final answer's
 tokens with the configured premium prices. Local answers and self-checks are
 free. Routing latency includes every answer attempt and confidence check.
 
-`smartroute/auto` and unrecognized model names use heuristic selection and the
-confidence cascade (`routing_mode="heuristic"`). Use `smartroute/small`,
-`smartroute/medium`, or `smartroute/large` to bypass heuristic selection and stay
-on a fixed tier (`routing_mode="forced"`). Forced requests are scored but never
-escalate, so comparisons use the requested tier. Disabled large still resolves
-to medium.
+`smartroute/auto` and unrecognized model names use the trained classifier when
+available (`routing_mode="learned"`), otherwise the heuristic
+(`routing_mode="heuristic"`). Both paths use the confidence cascade. Use
+`smartroute/small`, `smartroute/medium`, or `smartroute/large` to bypass both
+selectors and stay on a fixed tier (`routing_mode="forced"`). Forced requests
+are scored but never escalate. Disabled large still resolves to medium.
 
 Requests must include a model and at least one text message. Streaming
 (`stream=true`) returns HTTP 400 without a provider call. Provider connection
@@ -134,8 +134,8 @@ pull the selected model if Ollama reports it is missing.
 Feature extraction joins all message contents with newlines, excluding role
 names. It measures characters, whitespace-separated words, message count,
 code/math cues, question marks, reasoning/long-output cues, non-ASCII character
-ratio, and average word length. `FEATURE_ORDER` defines the stable vector order
-for the later learned router.
+ratio, and average word length. `FEATURE_ORDER` defines the same stable vector
+order for training and learned predictions.
 
 Rules are evaluated in this order; the first matching rule supplies the reason:
 
@@ -158,7 +158,7 @@ configured OpenAI-compatible provider and its token prices.
 
 ## Confidence Cascade
 
-Auto mode starts at the heuristic-selected tier. Confidence is the average of
+Auto mode starts at the learned- or heuristic-selected tier. Confidence is the average of
 two signals: a text heuristic penalizing empty, short, hedged, or repeated-question
 answers, and a same-model self-check requesting an integer from 0 to 10 with
 `max_tokens=4`. Scoring uses the latest user question. Invalid or unavailable
@@ -215,8 +215,54 @@ normalize whitespace, and are limited to 200 characters. Timestamps are UTC.
 Invoke-RestMethod 'http://127.0.0.1:8000/v1/requests?limit=10&escalated=false&feedback=0'
 ```
 
-The database feedback and training-row helpers are ready; the public feedback
-endpoint and learned router arrive in Phase 7.
+## Feedback And Training
+
+`POST /v1/feedback` accepts `{request_id, score, note?}`. `score` must be the JSON
+integer `1` or `-1`; strings, booleans, and zero are rejected with HTTP 422.
+Success returns the saved fields. Unknown request IDs return HTTP 404, including
+a request whose background log has not appeared yet. Posting again replaces the
+rating; omitting `note` clears a previous note.
+
+```powershell
+$feedback = @{ request_id = "<request ID from a completion>"; score = 1; note = "Helpful answer" } | ConvertTo-Json
+Invoke-RestMethod http://127.0.0.1:8000/v1/feedback -Method Post -ContentType "application/json" -Body $feedback
+```
+
+After rating at least 30 requests, train from `backend/`:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.train
+```
+
+A positive rating labels `tier_final` as sufficient. A negative rating labels
+the next tier above it, capped at large. This uses all three tier labels even
+when large currently falls back to medium. The trainer vectorizes features in
+`FEATURE_ORDER` and fits `StandardScaler` followed by
+`LogisticRegression(max_iter=1000)`.
+
+Fewer than 30 labelled rows, only one target class, or invalid saved features
+produce a friendly skip message and leave any existing model untouched. The CLI
+exits normally for these cases. Feedback does not trigger training automatically;
+call `train()` from Python or run the command again after adding ratings.
+
+The command prints accuracy, class order, and a confusion matrix. With at least
+two examples per class, evaluation uses a reproducible stratified 20% holdout;
+the saved pipeline is then refitted on all labelled rows. A singleton class uses
+explicitly marked `evaluation="training"` metrics instead. Those in-sample
+metrics are optimistic, and neither metric estimates answer correctness.
+
+Training writes `MODEL_PATH` and a sibling `router_model_meta.json` containing
+the UTC training time, row count, accuracy, classes, confusion matrix, and
+evaluation type. Each file is staged before replacement. Default artifacts are
+under gitignored `data/`. Only load trusted, locally trained joblib files: the
+format can execute Python during deserialization.
+
+The gateway loads the model lazily and refreshes it when the artifact changes,
+without a restart. Missing, unreadable, or incompatible artifacts fall back to
+the heuristic. The learned class probability appears in the routing reason;
+`smartroute.confidence` still describes the generated answer's confidence check,
+not the classifier's probability. The normal escalation and disabled-large
+fallback rules still apply.
 
 ## Provider Smoke Check
 
@@ -244,6 +290,8 @@ compatibility, plus feature signals, rule boundaries, provider selection, and
 large-tier fallback/costs. Confidence tests cover penalties, parsing failures,
 top-tier behavior, forced modes, escalation limits, and cumulative costs/timing.
 Request-log tests cover round trips, startup, source labels, safe filters,
-pagination, concurrent inserts, and full-detail retrieval. Every test uses an
-isolated temporary database rather than the local request history. VS Code also
-has `install: backend` and `test: backend` tasks, using the same virtual environment.
+pagination, concurrent inserts, and full-detail retrieval. Learned-router tests
+cover feedback validation, training safeguards, saved-model loading, replacement,
+fallback, and the complete feedback-to-routing flow. Tests use temporary databases
+and model files, never the user's request history or trained artifact. VS Code
+also has `install: backend` and `test: backend` tasks, using the same virtual environment.

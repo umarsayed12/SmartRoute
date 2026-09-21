@@ -303,7 +303,9 @@ async def test_forced_tiers_do_not_escalate(
 ) -> None:
     """Forced modes bypass heuristic selection and stay fixed even at low confidence."""
     picker = Mock(side_effect=AssertionError("Forced routing must skip the heuristic."))
+    learned_picker = Mock(side_effect=AssertionError("Forced routing must skip the learned model."))
     monkeypatch.setattr(routing_router, "pick_tier", picker)
+    monkeypatch.setattr(routing_router.learned, "pick_tier", learned_picker)
     monkeypatch.setattr(routing_router, "score", AsyncMock(return_value=0.1))
     provider.return_value.model = provider_model
 
@@ -322,6 +324,7 @@ async def test_forced_tiers_do_not_escalate(
     assert provider.await_args.kwargs["model"] == provider_model
     provider.assert_awaited_once()
     picker.assert_not_called()
+    learned_picker.assert_not_called()
 
 
 @pytest.mark.asyncio

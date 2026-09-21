@@ -6,6 +6,7 @@ from uuid import uuid4
 from app.config import Tier, settings
 from app.providers import ollama, openai_compatible
 from app.providers.base import ProviderResult
+from app.routing import learned
 from app.routing.confidence import score
 from app.routing.features import extract_features
 from app.routing.heuristic import pick_tier
@@ -47,8 +48,16 @@ async def route_and_answer(
     }
     if forced:
         reason = f"Forced {chosen_tier} tier."
+        routing_mode = "forced"
     else:
-        chosen_tier, reason = pick_tier(extract_features(messages))
+        features = extract_features(messages)
+        prediction = learned.pick_tier(features)
+        if prediction is None:
+            chosen_tier, reason = pick_tier(features)
+            routing_mode = "heuristic"
+        else:
+            chosen_tier, _probability, reason = prediction
+            routing_mode = "learned"
     tier = settings.get_tier(chosen_tier)
     if tier.name != chosen_tier:
         reason += f" {chosen_tier.capitalize()} is disabled; using {tier.name} instead."
@@ -93,7 +102,7 @@ async def route_and_answer(
         escalated=escalations > 0,
         confidence=answer_confidence,
         reason=reason,
-        routing_mode="forced" if forced else "heuristic",
+        routing_mode=routing_mode,
         latency_ms=round((perf_counter() - started) * 1000),
         actual_cost_usd=actual_cost_usd,
         reference_cost_usd=(
