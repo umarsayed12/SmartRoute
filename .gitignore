@@ -1,0 +1,27 @@
+# Keep local environments, secrets, generated artifacts, and OS files out of Git.
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.db
+*.db-shm
+*.db-wal
+*.joblib
+*.egg-info/
+
+# Local configuration and runtime data
+.env
+.env.local
+backend/data/
+
+# Node and build output
+node_modules/
+dist/
+build/
+
+# Operating systems
+.DS_Store
+Thumbs.db
+Desktop.ini
