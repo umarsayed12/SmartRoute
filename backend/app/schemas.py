@@ -39,13 +39,13 @@ class Choice(BaseModel):
 
 
 class RoutingInfo(BaseModel):
-    """Expose tier selection, timing, and costs without inventing confidence."""
+    """Expose tier selection, confidence signals, total timing, and costs."""
 
     request_id: str
     tier_chosen: str
     tier_final: str
     escalated: bool
-    confidence: float | None = Field(ge=0, le=1)
+    confidence: float = Field(ge=0, le=1)
     reason: str
     routing_mode: str
     latency_ms: int = Field(ge=0)

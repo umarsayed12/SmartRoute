@@ -1,8 +1,8 @@
-"""Verify chat compatibility, heuristic provider selection, and API errors."""
+"""Verify chat compatibility, forced routing, confidence cascades, and costs."""
 
 from collections.abc import AsyncIterator
 from time import time
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -12,15 +12,19 @@ from openai import AsyncOpenAI, BadRequestError
 from app.config import Settings
 from app.main import app
 from app.providers.base import ProviderResult
+from app.routing import confidence
 from app.routing import router as routing_router
 
 
 @pytest.fixture
 def provider(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-    """Use deterministic settings and a stubbed provider without network access."""
+    """Stub provider calls and confidence so API tests never make network requests."""
     for name in Settings.model_fields:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(routing_router, "settings", Settings(_env_file=None))
+    configured = Settings(_env_file=None)
+    monkeypatch.setattr(routing_router, "settings", configured)
+    monkeypatch.setattr(confidence, "settings", configured)
+    monkeypatch.setattr(routing_router, "score", AsyncMock(return_value=0.9))
     mocked = AsyncMock(return_value=ProviderResult(
         content="Hello!", prompt_tokens=12, completion_tokens=3,
         latency_ms=17, model="qwen2.5:1.5b",
@@ -39,11 +43,11 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model", ["smartroute/auto", "smartroute/large", "other-model"])
+@pytest.mark.parametrize("model", ["smartroute/auto", "other-model", "smartroute/unknown", "small"])
 async def test_chat_response(
     client: httpx.AsyncClient, provider: AsyncMock, model: str
 ) -> None:
-    """Greetings route to small; requested model names do not force a tier yet."""
+    """Auto and unrecognized model names use the heuristic and return a completion."""
     before = int(time())
     response = await client.post("/v1/chat/completions", json={
         "model": model,
@@ -68,10 +72,10 @@ async def test_chat_response(
     assert routing["request_id"] == data["id"]
     assert routing["tier_chosen"] == routing["tier_final"] == "small"
     assert routing["escalated"] is False
-    assert routing["confidence"] is None
+    assert routing["confidence"] == 0.9
     assert routing["routing_mode"] == "heuristic"
     assert routing["reason"]
-    assert routing["latency_ms"] == 17
+    assert routing["latency_ms"] >= 0
     assert routing["actual_cost_usd"] == 0
     assert routing["reference_cost_usd"] == pytest.approx(0.00006)
     provider.assert_awaited_once_with(
@@ -226,7 +230,7 @@ async def test_heuristic_medium_and_disabled_large(
     """Select medium directly or resolve disabled large without an escalation."""
     provider.return_value.model = "qwen2.5:7b"
     response = await client.post("/v1/chat/completions", json={
-        "model": "smartroute/small",
+        "model": "smartroute/auto",
         "messages": [{"role": "user", "content": prompt}],
     })
 
@@ -238,7 +242,7 @@ async def test_heuristic_medium_and_disabled_large(
     assert routing["tier_final"] == "medium"
     assert routing["routing_mode"] == "heuristic"
     assert routing["escalated"] is False
-    assert routing["confidence"] is None
+    assert routing["confidence"] == 0.9
     assert routing["actual_cost_usd"] == 0
     assert reason_cue in routing["reason"]
     provider.assert_awaited_once_with(
@@ -248,8 +252,10 @@ async def test_heuristic_medium_and_disabled_large(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["smartroute/auto", "smartroute/large"])
 async def test_enabled_large_provider_and_costs(
-    client: httpx.AsyncClient, provider: AsyncMock, monkeypatch: pytest.MonkeyPatch
+    client: httpx.AsyncClient, provider: AsyncMock, monkeypatch: pytest.MonkeyPatch,
+    model: str,
 ) -> None:
     """Use remote configuration and actual usage prices when large is enabled."""
     monkeypatch.setattr(routing_router, "settings", Settings(
@@ -266,7 +272,7 @@ async def test_enabled_large_provider_and_costs(
     messages = [{"role": "user", "content": "Write a detailed essay"}]
 
     response = await client.post("/v1/chat/completions", json={
-        "model": "smartroute/auto", "messages": messages,
+        "model": model, "messages": messages,
         "temperature": 0.7, "max_tokens": 64,
     })
 
@@ -276,10 +282,10 @@ async def test_enabled_large_provider_and_costs(
     assert data["usage"]["total_tokens"] == 30
     routing = data["smartroute"]
     assert routing["tier_chosen"] == routing["tier_final"] == "large"
-    assert routing["routing_mode"] == "heuristic"
+    assert routing["routing_mode"] == ("forced" if model == "smartroute/large" else "heuristic")
     assert routing["escalated"] is False
-    assert routing["confidence"] is None
-    assert routing["latency_ms"] == 45
+    assert routing["confidence"] == 0.9
+    assert routing["latency_ms"] >= 0
     assert routing["actual_cost_usd"] == pytest.approx(0.004)
     assert routing["reference_cost_usd"] == pytest.approx(0.020)
     assert "test-only-key" not in response.text
@@ -288,3 +294,167 @@ async def test_enabled_large_provider_and_costs(
         base_url="https://example.test/v1", api_key="test-only-key",
     )
     provider.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("model", "chosen", "final", "provider_model"), [
+    ("smartroute/small", "small", "small", "qwen2.5:1.5b"),
+    ("smartroute/medium", "medium", "medium", "qwen2.5:7b"),
+    ("smartroute/large", "large", "medium", "qwen2.5:7b"),
+])
+async def test_forced_tiers_do_not_escalate(
+    client: httpx.AsyncClient, provider: AsyncMock, monkeypatch: pytest.MonkeyPatch,
+    model: str, chosen: str, final: str, provider_model: str,
+) -> None:
+    """Forced modes bypass heuristic selection and stay fixed even at low confidence."""
+    picker = Mock(side_effect=AssertionError("Forced routing must skip the heuristic."))
+    monkeypatch.setattr(routing_router, "pick_tier", picker)
+    monkeypatch.setattr(routing_router, "score", AsyncMock(return_value=0.1))
+    provider.return_value.model = provider_model
+
+    response = await client.post("/v1/chat/completions", json={
+        "model": model,
+        "messages": [{"role": "user", "content": "Write a comprehensive essay"}],
+    })
+
+    assert response.status_code == 200
+    routing = response.json()["smartroute"]
+    assert routing["tier_chosen"] == chosen
+    assert routing["tier_final"] == final
+    assert routing["routing_mode"] == "forced"
+    assert routing["confidence"] == 0.1
+    assert routing["escalated"] is False
+    assert provider.await_args.kwargs["model"] == provider_model
+    provider.assert_awaited_once()
+    picker.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("first_score", "limit", "calls"), [
+    (0.9, 1, 1), (0.6, 1, 1), (0.59, 0, 1), (0.59, 1, 2), (0.0, 5, 2),
+])
+async def test_escalation_threshold_and_enabled_tiers(
+    client: httpx.AsyncClient, provider: AsyncMock, monkeypatch: pytest.MonkeyPatch,
+    first_score: float, limit: int, calls: int,
+) -> None:
+    """Use a strict threshold, honor zero budget, and never repeat disabled large's fallback."""
+    routing_router.settings.MAX_ESCALATIONS = limit
+    provider.side_effect = [
+        ProviderResult("First answer", 12, 3, 17, "qwen2.5:1.5b"),
+        ProviderResult("Second answer", 20, 5, 25, "qwen2.5:7b"),
+    ]
+    scorer = AsyncMock(side_effect=[first_score, 0.2])
+    monkeypatch.setattr(routing_router, "score", scorer)
+
+    response = await client.post("/v1/chat/completions", json={
+        "model": "smartroute/auto", "messages": [{"role": "user", "content": "Hello"}],
+        "temperature": 0.7, "max_tokens": 32,
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    routing = data["smartroute"]
+    assert routing["tier_chosen"] == "small"
+    assert routing["tier_final"] == ("medium" if calls == 2 else "small")
+    assert routing["escalated"] is (calls == 2)
+    assert routing["confidence"] == (0.2 if calls == 2 else first_score)
+    assert data["usage"]["total_tokens"] == (25 if calls == 2 else 15)
+    assert [call.kwargs["model"] for call in provider.await_args_list] == [
+        "qwen2.5:1.5b", "qwen2.5:7b",
+    ][:calls]
+    assert all(call.kwargs["max_tokens"] == 32 for call in provider.await_args_list)
+    assert all(call.kwargs["temperature"] == 0.7 for call in provider.await_args_list)
+    assert scorer.await_count == calls
+    if calls == 2:
+        assert "escalating small to medium" in routing["reason"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("limit", "total_cost", "reference_cost", "final_tier"), [
+    (1, 0.102, 0.00011, "medium"),
+    (2, 0.300, 0.000155, "large"),
+])
+async def test_escalation_budget_and_total_costs(
+    client: httpx.AsyncClient, provider: AsyncMock, monkeypatch: pytest.MonkeyPatch,
+    limit: int, total_cost: float, reference_cost: float, final_tier: str,
+) -> None:
+    """Sum all answer costs, use final-token reference cost, and time the whole cascade."""
+    configured = Settings(
+        _env_file=None, MAX_ESCALATIONS=limit,
+        LARGE_MODEL="example-large", LARGE_BASE_URL="https://example.test/v1",
+        LARGE_INPUT_PRICE=5.0, LARGE_OUTPUT_PRICE=6.0,
+    )
+    tiers = configured.TIERS
+    tiers[0].input_price_per_1k, tiers[0].output_price_per_1k = 1.0, 2.0
+    tiers[1].input_price_per_1k, tiers[1].output_price_per_1k = 3.0, 4.0
+    monkeypatch.setattr(Settings, "TIERS", property(lambda _settings: tiers))
+    monkeypatch.setattr(routing_router, "settings", configured)
+    monkeypatch.setattr(routing_router, "score", AsyncMock(side_effect=[0.1, 0.2, 1.0]))
+    monkeypatch.setattr(routing_router, "perf_counter", Mock(side_effect=[100.0, 100.5]))
+    provider.side_effect = [
+        ProviderResult("Small answer", 10, 4, 10, "qwen2.5:1.5b"),
+        ProviderResult("Medium answer", 20, 6, 20, "qwen2.5:7b"),
+    ]
+    remote_provider = AsyncMock(return_value=ProviderResult(
+        "Large answer", 30, 8, 30, "example-large",
+    ))
+    monkeypatch.setattr(routing_router.openai_compatible, "chat", remote_provider)
+
+    response = await client.post("/v1/chat/completions", json={
+        "model": "smartroute/auto", "messages": [{"role": "user", "content": "Hello"}],
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    routing = data["smartroute"]
+    assert routing["tier_chosen"] == "small"
+    assert routing["tier_final"] == final_tier
+    assert routing["escalated"] is True
+    assert routing["actual_cost_usd"] == pytest.approx(total_cost)
+    assert routing["reference_cost_usd"] == pytest.approx(reference_cost)
+    assert routing["latency_ms"] == 500
+    assert data["usage"]["total_tokens"] == (26 if limit == 1 else 38)
+    assert provider.await_count == 2
+    assert remote_provider.await_count == limit - 1
+    if limit == 1:
+        assert "Escalation limit reached" in routing["reason"]
+
+
+@pytest.mark.asyncio
+async def test_real_confidence_drives_cascade(
+    client: httpx.AsyncClient, provider: AsyncMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise the real scorer, its four-token check, and the final top-tier answer."""
+    monkeypatch.setattr(routing_router, "score", confidence.score)
+    provider.side_effect = [
+        ProviderResult("I don't know.", 12, 4, 10, "qwen2.5:1.5b"),
+        ProviderResult("0", 25, 1, 5, "qwen2.5:1.5b"),
+        ProviderResult("Paris is the capital of France.", 20, 8, 20, "qwen2.5:7b"),
+    ]
+    question = "What is the capital of France?"
+    messages = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hello!"},
+        {"role": "user", "content": question},
+    ]
+
+    response = await client.post("/v1/chat/completions", json={
+        "model": "smartroute/auto", "messages": messages, "max_tokens": 32,
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["choices"][0]["message"]["content"] == "Paris is the capital of France."
+    assert data["smartroute"]["tier_chosen"] == "small"
+    assert data["smartroute"]["tier_final"] == "medium"
+    assert data["smartroute"]["escalated"] is True
+    assert data["smartroute"]["confidence"] == 1.0
+    assert data["usage"]["total_tokens"] == 28
+    assert [call.kwargs["max_tokens"] for call in provider.await_args_list] == [32, 4, 32]
+    assert [call.kwargs["model"] for call in provider.await_args_list] == [
+        "qwen2.5:1.5b", "qwen2.5:1.5b", "qwen2.5:7b",
+    ]
+    checking_prompt = provider.await_args_list[1].kwargs["messages"][1]["content"]
+    assert question in checking_prompt
+    assert "Hello" not in checking_prompt
+    assert provider.await_args_list[2].kwargs["messages"] == messages

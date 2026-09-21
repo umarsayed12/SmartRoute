@@ -2,8 +2,9 @@
 # SmartRoute Backend
 
 FastAPI foundation with environment-driven model tiers and async Ollama and
-OpenAI-compatible providers. Phase 4 exposes `/health` and
-`POST /v1/chat/completions` with feature-based, explainable heuristic routing.
+OpenAI-compatible providers. Phase 5 exposes `/health` and
+`POST /v1/chat/completions` with heuristic routing, confidence-based escalation,
+and fixed-tier modes.
 
 ## Setup (Windows PowerShell)
 
@@ -77,10 +78,10 @@ free. API roots with or without a trailing `/v1` are accepted. Set the input and
 output prices to the provider's actual USD price per 1,000 tokens.
 
 Reference prices default to $0.0025 input and $0.010 output per 1,000 tokens.
-Confidence defaults to 0.6 with one escalation. These and the database/model
-paths are configuration for subsequent phases; confidence-based escalation and
-persistence are not implemented yet. Relative data paths assume the backend
-working directory.
+The confidence threshold defaults to 0.6 and `MAX_ESCALATIONS` defaults to 1;
+setting it to 0 disables escalation. Database and learned-model paths are
+configuration for subsequent phases. Relative paths assume the backend working
+directory.
 
 ## OpenAI-Compatible Chat
 
@@ -110,16 +111,22 @@ Invoke-RestMethod http://127.0.0.1:8000/v1/chat/completions -Method Post -Conten
 Responses contain OpenAI's `id`, `object`, `created`, `model`, `choices`, and
 `usage`, plus a `smartroute` object with the request ID, chosen/final tier,
 escalation flag, confidence, reason, routing mode, latency, and actual/reference
-costs. Token counts come from the selected provider. Local model usage costs $0;
-reference cost uses the configured premium prices.
+costs. OpenAI `usage` reports the final answer's provider token counts. Actual
+cost sums all answer attempts; reference cost uses only the final answer's
+tokens with the configured premium prices. Local answers and self-checks are
+free. Routing latency includes every answer attempt and confidence check.
 
-All requested model names currently use heuristic selection, including names
-such as `smartroute/small` and `smartroute/large`. Forced routing arrives in
-Phase 5. The routing mode is `heuristic`, and confidence remains `null` until
-confidence scoring is implemented. Requests must include a model and at least
-one text message. Streaming (`stream=true`) returns HTTP 400 without a provider
-call. Provider connection failures return 503, timeouts return 504, and provider
-HTTP errors return 502; pull the selected model if Ollama reports it is missing.
+`smartroute/auto` and unrecognized model names use heuristic selection and the
+confidence cascade (`routing_mode="heuristic"`). Use `smartroute/small`,
+`smartroute/medium`, or `smartroute/large` to bypass heuristic selection and stay
+on a fixed tier (`routing_mode="forced"`). Forced requests are scored but never
+escalate, so comparisons use the requested tier. Disabled large still resolves
+to medium.
+
+Requests must include a model and at least one text message. Streaming
+(`stream=true`) returns HTTP 400 without a provider call. Provider connection
+failures return 503, timeouts return 504, and provider HTTP errors return 502;
+pull the selected model if Ollama reports it is missing.
 
 ## Heuristic Routing
 
@@ -145,9 +152,29 @@ and the other measured features remain available for later learned routing.
 
 If large is disabled, metadata records `tier_chosen="large"` and
 `tier_final="medium"`, and the reason explains the fallback. This is one call to
-medium, not an escalation: `escalated=false` until the confidence cascade is
-added in Phase 5. An enabled large tier uses the configured OpenAI-compatible
-provider and its token prices.
+medium, not an escalation: `escalated=false`. An enabled large tier uses the
+configured OpenAI-compatible provider and its token prices.
+
+## Confidence Cascade
+
+Auto mode starts at the heuristic-selected tier. Confidence is the average of
+two signals: a text heuristic penalizing empty, short, hedged, or repeated-question
+answers, and a same-model self-check requesting an integer from 0 to 10 with
+`max_tokens=4`. Scoring uses the latest user question. Invalid or unavailable
+self-checks contribute a neutral 0.5 rather than discarding a generated answer.
+
+When confidence is strictly below `CONFIDENCE_THRESHOLD`, the router tries the
+next enabled tier, preserving the conversation and generation options. It stops
+at the escalation budget, a satisfactory score, or the highest enabled tier.
+The default budget allows one step; increasing it permits up to small -> medium
+-> large when all tiers are enabled. The reason records each transition, while
+`tier_chosen` retains the original selection and `tier_final` identifies the
+returned answer's tier.
+
+The highest enabled tier skips the self-check and returns confidence 1.0. That
+is medium when large is disabled, otherwise large. This is a routing convention,
+not a calibrated probability or a guarantee that the answer is correct. Lower
+tiers are local Ollama models, so their auxiliary self-checks do not incur fees.
 
 ## Provider Smoke Check
 
@@ -172,5 +199,7 @@ Tests use mocked HTTP responses and require neither Ollama nor remote credential
 They cover tier configuration and fallback, request payloads, token accounting,
 provider errors, health checks, CORS, chat validation, and official OpenAI SDK
 compatibility, plus feature signals, rule boundaries, provider selection, and
-large-tier fallback/costs. VS Code also has `install: backend` and `test: backend`
-tasks, using the same virtual environment.
+large-tier fallback/costs. Confidence tests cover penalties, parsing failures,
+top-tier behavior, forced modes, escalation limits, and cumulative costs/timing.
+VS Code also has `install: backend` and `test: backend` tasks, using the same
+virtual environment.
