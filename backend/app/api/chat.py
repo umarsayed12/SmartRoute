@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
 
 from app import db
 from app.routing.features import extract_features
-from app.routing.router import route_and_answer
+from app.routing.router import LearnedRouterUnavailableError, route_and_answer
 from app.schemas import (
     ChatCompletionRequest,
     ChatCompletionResponse,
@@ -36,6 +36,8 @@ async def create_chat_completion(
     created_at = datetime.now(timezone.utc)
     try:
         result, routing = await route_and_answer(request)
+    except LearnedRouterUnavailableError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
     except httpx.TimeoutException as error:
         raise HTTPException(status_code=504, detail="Model provider timed out.") from error
     except httpx.RequestError as error:

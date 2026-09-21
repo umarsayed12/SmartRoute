@@ -1,5 +1,6 @@
-"""Chat, feedback, and routing schemas for the SmartRoute API."""
+"""Chat, feedback, routing, and administration schemas for the SmartRoute API."""
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -79,3 +80,15 @@ class FeedbackRequest(BaseModel):
         if score == 0:
             raise ValueError("Feedback score must be -1 or 1.")
         return score
+
+
+class TrainingMetadata(BaseModel):
+    """Validate a saved training report before exposing it through the admin API."""
+
+    trained: Literal[True] = True
+    trained_at: datetime
+    n_rows: int = Field(ge=0)
+    accuracy: float = Field(ge=0, le=1, allow_inf_nan=False)
+    classes: list[Literal["small", "medium", "large"]] = Field(min_length=2)
+    confusion_matrix: list[list[int]] = Field(default_factory=list)
+    evaluation: Literal["holdout", "training"] | None = None

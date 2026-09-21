@@ -165,3 +165,15 @@ def rows_for_training() -> list[dict[str, Any]]:
             "SELECT * FROM requests WHERE feedback IN (-1, 1) ORDER BY created_at, id"
         ).fetchall()
     return [_request_dict(row) for row in rows]
+
+
+def rows_for_stats(start_at: str, end_at: str) -> list[dict[str, Any]]:
+    """Read only dashboard fields within inclusive UTC ISO timestamp bounds."""
+    with _connection() as connection:
+        rows = connection.execute(
+            "SELECT created_at, tier_final, escalated, feedback, routing_mode, latency_ms, "
+            "actual_cost_usd, reference_cost_usd FROM requests "
+            "WHERE created_at >= ? AND created_at <= ? ORDER BY created_at",
+            (start_at, end_at),
+        ).fetchall()
+    return [_request_dict(row) for row in rows]

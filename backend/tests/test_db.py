@@ -1,16 +1,19 @@
-"""Verify SQLite persistence, filters, pagination, and feedback training rows."""
+"""Verify request persistence, history filters, and dashboard aggregates."""
 
 import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import httpx
 import pytest
 
 from app import db
+from app.api import stats
 
 
 @pytest.fixture(autouse=True)
@@ -241,5 +244,108 @@ async def test_history_query_validation(
 ) -> None:
     """Reject invalid query values before reaching the SQLite helpers."""
     response = await client.get("/v1/requests", params=parameters)
+
+    assert response.status_code == 422
+
+
+@pytest.fixture
+def stats_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fix the dashboard clock so calendar boundaries do not depend on the test date."""
+    clock = Mock(wraps=datetime)
+    clock.now.return_value = datetime(2026, 9, 21, 12, tzinfo=timezone.utc)
+    monkeypatch.setattr(stats, "datetime", clock)
+
+
+@pytest.mark.asyncio
+async def test_empty_dashboard(client: httpx.AsyncClient, stats_clock: None) -> None:
+    """Empty periods have zero totals, nullable quality/latency, and every calendar day."""
+    response = await client.get("/v1/stats", params={"days": 3})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["totals"] == {"requests": 0, "escalations": 0, "escalation_rate": 0}
+    assert data["cost"] == {"actual_usd": 0, "reference_usd": 0, "saved_usd": 0, "saved_pct": 0}
+    assert data["quality"]["feedback_count"] == 0
+    assert data["quality"]["positive_rate"] is None
+    assert data["tier_distribution"] == {"small": 0, "medium": 0, "large": 0}
+    assert data["routing_modes"] == {"heuristic": 0, "learned": 0, "forced": 0}
+    assert data["latency"]["small"] == {"p50": None, "p95": None}
+    assert [point["date"] for point in data["timeline"]] == [
+        "2026-09-19", "2026-09-20", "2026-09-21",
+    ]
+    assert all(point["requests"] == 0 and point["positive_rate"] is None for point in data["timeline"])
+
+
+@pytest.mark.asyncio
+async def test_dashboard_aggregates(client: httpx.AsyncClient, stats_clock: None) -> None:
+    """Aggregate costs, rated-only quality, routing modes, daily data, and latency percentiles."""
+    db.insert_request(_row(
+        id="small-positive", created_at="2026-09-20T09:00:00+00:00",
+        actual_cost_usd=1, reference_cost_usd=4, latency_ms=10, feedback=1,
+    ))
+    db.insert_request(_row(
+        id="small-negative", created_at="2026-09-21T09:00:00+00:00",
+        actual_cost_usd=2, reference_cost_usd=6, latency_ms=30, feedback=-1, routing_mode="forced",
+    ))
+    db.insert_request(_row(
+        id="medium", tier_final="medium", escalated=True, routing_mode="learned",
+        actual_cost_usd=3, reference_cost_usd=10, latency_ms=100,
+    ))
+    db.insert_request(_row(
+        id="large", created_at="2026-09-21T11:00:00+00:00", tier_final="large",
+        routing_mode="learned", actual_cost_usd=0, reference_cost_usd=0, latency_ms=200, feedback=1,
+    ))
+    db.insert_request(_row(id="old", created_at="2026-09-18T23:59:59+00:00"))
+    db.insert_request(_row(id="future", created_at="2026-09-21T13:00:00+00:00"))
+
+    response = await client.get("/v1/stats", params={"days": 3})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["totals"] == {"requests": 4, "escalations": 1, "escalation_rate": 0.25}
+    assert data["cost"] == {"actual_usd": 6, "reference_usd": 20, "saved_usd": 14, "saved_pct": 70}
+    assert data["quality"]["feedback_count"] == 3
+    assert data["quality"]["positive_rate"] == pytest.approx(2 / 3)
+    assert data["quality"]["by_tier"]["small"] == {"count": 2, "positive_rate": 0.5}
+    assert data["quality"]["by_tier"]["medium"] == {"count": 0, "positive_rate": None}
+    assert data["tier_distribution"] == {"small": 2, "medium": 1, "large": 1}
+    assert data["latency"]["small"] == {"p50": 20, "p95": 29}
+    assert data["latency"]["medium"] == {"p50": 100, "p95": 100}
+    assert data["routing_modes"] == {"heuristic": 1, "learned": 2, "forced": 1}
+    assert data["timeline"] == [
+        {"date": "2026-09-19", "requests": 0, "saved_usd": 0, "positive_rate": None},
+        {"date": "2026-09-20", "requests": 1, "saved_usd": 3, "positive_rate": 1},
+        {"date": "2026-09-21", "requests": 3, "saved_usd": 11, "positive_rate": 0.5},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_boundaries_and_negative_savings(
+    client: httpx.AsyncClient, stats_clock: None
+) -> None:
+    """Include exact time bounds and report overspend rather than clamping savings."""
+    db.insert_request(_row(
+        id="start", created_at="2026-09-21T00:00:00+00:00", actual_cost_usd=2, reference_cost_usd=1,
+    ))
+    db.insert_request(_row(
+        id="now", created_at="2026-09-21T12:00:00+00:00", actual_cost_usd=2, reference_cost_usd=1,
+    ))
+    db.insert_request(_row(id="previous-day", created_at="2026-09-20T23:59:59.999999+00:00"))
+    db.insert_request(_row(id="later", created_at="2026-09-21T12:00:00.000001+00:00"))
+
+    response = await client.get("/v1/stats", params={"days": 1})
+
+    assert response.status_code == 200
+    assert response.json()["totals"]["requests"] == 2
+    assert response.json()["cost"] == {
+        "actual_usd": 4, "reference_usd": 2, "saved_usd": -2, "saved_pct": -100,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("days", ["0", "-1", "366", "seven", "1.5"])
+async def test_dashboard_days_validation(client: httpx.AsyncClient, days: str) -> None:
+    """Reject unbounded or invalid dashboard ranges before querying storage."""
+    response = await client.get("/v1/stats", params={"days": days})
 
     assert response.status_code == 422

@@ -26,24 +26,6 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(module, "settings", configured)
 
 
-@pytest.fixture
-def mock_http(monkeypatch: pytest.MonkeyPatch) -> MockHttp:
-    """Replace outbound HTTP with a per-test transport, keeping client behavior."""
-    original_client = httpx.AsyncClient
-
-    def install(handler: Callable[[httpx.Request], httpx.Response]) -> None:
-        """Route subsequent async clients through the supplied handler."""
-        def create_client(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
-            """Build a real async client with an in-memory HTTP transport."""
-            return original_client(
-                *args, transport=httpx.MockTransport(handler), **kwargs
-            )
-
-        monkeypatch.setattr(httpx, "AsyncClient", create_client)
-
-    return install
-
-
 def test_default_tiers_and_fallback() -> None:
     """Default local tiers are free and disabled large resolves to medium."""
     configured = Settings(_env_file=None)

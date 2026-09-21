@@ -2,9 +2,9 @@
 # SmartRoute Backend
 
 FastAPI foundation with environment-driven model tiers and async Ollama and
-OpenAI-compatible providers. Phase 7 adds feedback and a trainable routing policy
-to `/health`, chat completions, confidence-based escalation, fixed-tier modes,
-and searchable SQLite request history.
+OpenAI-compatible providers. Phase 8 includes feedback-driven routing, dashboard
+statistics, model availability checks, persistent runtime settings, and training
+administration alongside chat completions and searchable request history.
 
 ## Setup (Windows PowerShell)
 
@@ -64,6 +64,8 @@ this flag checks reachability, not whether the two models have been downloaded.
 Every environment variable is documented in [.env.example](.env.example).
 Environment variables override `backend/.env`; restart the backend after changes.
 The `TIERS` list is derived from these settings, not a separate environment variable.
+On startup, saved runtime settings override their environment defaults. Provider
+URLs, models, and credentials remain environment-only configuration.
 
 | Tier | Provider | Default model | Default cost |
 | --- | --- | --- | --- |
@@ -117,9 +119,9 @@ cost sums all answer attempts; reference cost uses only the final answer's
 tokens with the configured premium prices. Local answers and self-checks are
 free. Routing latency includes every answer attempt and confidence check.
 
-`smartroute/auto` and unrecognized model names use the trained classifier when
-available (`routing_mode="learned"`), otherwise the heuristic
-(`routing_mode="heuristic"`). Both paths use the confidence cascade. Use
+With the default routing preference, `smartroute/auto` and unrecognized model
+names use the trained classifier when available (`routing_mode="learned"`),
+otherwise the heuristic (`routing_mode="heuristic"`). Both paths use the confidence cascade. Use
 `smartroute/small`, `smartroute/medium`, or `smartroute/large` to bypass both
 selectors and stay on a fixed tier (`routing_mode="forced"`). Forced requests
 are scored but never escalate. Disabled large still resolves to medium.
@@ -258,11 +260,81 @@ under gitignored `data/`. Only load trusted, locally trained joblib files: the
 format can execute Python during deserialization.
 
 The gateway loads the model lazily and refreshes it when the artifact changes,
-without a restart. Missing, unreadable, or incompatible artifacts fall back to
-the heuristic. The learned class probability appears in the routing reason;
+without a restart. In the default `auto` preference, missing, unreadable, or
+incompatible artifacts fall back to the heuristic. The learned class probability appears in the routing reason;
 `smartroute.confidence` still describes the generated answer's confidence check,
 not the classifier's probability. The normal escalation and disabled-large
 fallback rules still apply.
+
+## Dashboard Statistics
+
+`GET /v1/stats?days=7` accepts 1-365 UTC calendar days, including today through
+the current time. Its response contains `totals`, `cost`, `quality`,
+`tier_distribution`, `latency`, `timeline`, and `routing_modes`.
+
+Request and escalation counts cover all matching completed requests. Quality
+rates use only rated answers; `quality.by_tier.count` is the number of ratings
+for that final tier. Escalation and positive-feedback rates are fractions from
+0 to 1, while `cost.saved_pct` is a percentage. Unrated quality rates and empty
+tier latency percentiles are `null`, not misleading zero-quality measurements.
+
+Latency p50/p95 use linear interpolation over full routing time in milliseconds,
+grouped by final tier. Savings are reference cost minus actual cost and may be
+negative. Saved percentage is 0 when reference spend is zero. All days in the
+requested range appear in the timeline, including days without requests.
+Stored costs remain unchanged when runtime reference prices are edited.
+
+## Runtime Administration
+
+These endpoints are unauthenticated development controls. Keep the server bound
+to loopback or a trusted environment; do not expose it publicly without access
+controls.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /v1/tiers` | Ordered model tiers, prices, enabled flags, and live availability |
+| `GET /v1/settings` | Current editable settings, without credentials |
+| `PUT /v1/settings` | Validate, merge, persist, and apply supplied settings |
+| `POST /v1/train` | Run the feedback trainer and return its result |
+| `GET /v1/train/status` | Saved training metadata, or `{"trained":false}` |
+
+Tier availability probes Ollama `/api/tags` or a remote provider's `/v1/models`
+with a two-second HTTP timeout, requiring the configured model to be listed.
+Disabled tiers are not probed. API keys are used only for remote authentication
+and are excluded from responses. Probes generate no model output; a provider
+without a compatible model-list endpoint can report unavailable even if its
+chat endpoint works.
+
+Editable fields are `confidence_threshold` (0-1), `max_escalations` (non-negative
+integer), `reference_input_price_per_1k`, `reference_output_price_per_1k`
+(non-negative finite USD values), and `routing_mode_preference`:
+
+- `auto`: prefer a learned model, otherwise use the heuristic.
+- `heuristic_only`: skip the learned model entirely.
+- `learned_only`: require a usable learned model; return HTTP 503 if unavailable.
+
+Explicit `smartroute/small|medium|large` requests bypass these policy preferences.
+The confidence cascade remains enabled for non-forced requests.
+
+`PUT` accepts partial updates. The validated result is written atomically to
+`settings.json` beside `DB_PATH` (normally `data/settings.json`) before shared
+in-memory values are updated. A failed write returns HTTP 500 without applying
+the change. Saved values are reloaded on startup; invalid files are ignored with
+a warning. Files contain only the editable, non-secret settings and are
+gitignored at the default location.
+
+```powershell
+$settings = @{ confidence_threshold = 0.7; routing_mode_preference = "auto" } | ConvertTo-Json
+Invoke-RestMethod http://127.0.0.1:8000/v1/settings -Method Put -ContentType "application/json" -Body $settings
+Invoke-RestMethod http://127.0.0.1:8000/v1/train -Method Post
+Invoke-RestMethod http://127.0.0.1:8000/v1/train/status
+```
+
+Training runs off the event loop and follows the same 30-row/two-class guards
+as the CLI. Insufficient data returns HTTP 200 with `trained=false`. Overlapping
+admin training jobs in the same process return HTTP 409. Status returns metadata
+only when the artifact exists and its report is valid; it does not unpickle the
+artifact or claim that a prediction was performed.
 
 ## Provider Smoke Check
 
@@ -292,6 +364,8 @@ top-tier behavior, forced modes, escalation limits, and cumulative costs/timing.
 Request-log tests cover round trips, startup, source labels, safe filters,
 pagination, concurrent inserts, and full-detail retrieval. Learned-router tests
 cover feedback validation, training safeguards, saved-model loading, replacement,
-fallback, and the complete feedback-to-routing flow. Tests use temporary databases
-and model files, never the user's request history or trained artifact. VS Code
+fallback, and the complete feedback-to-routing flow. Admin tests cover aggregate
+math, settings persistence and effects, secret redaction, model health, and training
+status/failure handling. Tests use temporary databases, settings, and model files,
+never the user's request history or trained artifact. VS Code
 also has `install: backend` and `test: backend` tasks, using the same virtual environment.

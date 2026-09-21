@@ -13,6 +13,10 @@ from app.routing.heuristic import pick_tier
 from app.schemas import ChatCompletionRequest, RoutingInfo
 
 
+class LearnedRouterUnavailableError(RuntimeError):
+    """Signal that learned-only routing was requested without a usable classifier."""
+
+
 async def _call_tier(
     tier: Tier, request: ChatCompletionRequest, messages: list[dict[str, str]]
 ) -> ProviderResult:
@@ -51,8 +55,11 @@ async def route_and_answer(
         routing_mode = "forced"
     else:
         features = extract_features(messages)
-        prediction = learned.pick_tier(features)
+        preference = settings.ROUTING_MODE_PREFERENCE
+        prediction = None if preference == "heuristic_only" else learned.pick_tier(features)
         if prediction is None:
+            if preference == "learned_only":
+                raise LearnedRouterUnavailableError("Learned-only routing requires a usable trained model.")
             chosen_tier, reason = pick_tier(features)
             routing_mode = "heuristic"
         else:
