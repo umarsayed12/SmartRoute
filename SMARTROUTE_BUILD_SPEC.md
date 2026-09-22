@@ -11,10 +11,10 @@
 
 ## Active Hosted Migration
 
-Current progress: M1-M3 are implemented in an authenticated loopback preview.
-M3 includes encrypted owned-model setup, OpenAI/Anthropic routing, and audited
-answer/self-check attempts. Provider validation is mocked; no live paid inference
-was run. M4 SDK/onboarding is next; M5 public-deployment gates remain pending.
+Current progress: M1-M4 are implemented in an authenticated loopback preview.
+Owned OpenAI/Anthropic routing and audited attempts are connected to the source
+Python SDK/CLI, setup gating, and Integration page. Provider validation is mocked;
+no live paid inference was run. M5 public deployment and publishing remain pending.
 
 The detailed architecture, security boundaries, setup, and acceptance criteria are
 in [docs/HOSTED_ARCHITECTURE.md](docs/HOSTED_ARCHITECTURE.md). Follow these checkpoints

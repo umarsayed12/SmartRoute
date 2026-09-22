@@ -43,7 +43,11 @@ documents the complete setup and accounting contract.
 	These are preview concurrency guards, not distributed limits or public abuse controls.
 
 Provider tests use deterministic mocked HTTP. Live OpenAI/Anthropic billing and
-account-specific model permissions have not been verified. The remaining sections
+account-specific model permissions have not been verified. M4's
+[source SDK and CLI](../sdk/README.md) use the same authenticated routes. The backend
+test suite exercises SDK owner setup, gateway-key chat/feedback, private history,
+cross-user denial, and immediate revocation without a paid call. No new database
+migration or public-mode permission expansion is needed for M4. The remaining sections
 describe **local-prototype mode**, whose defaults and failure logging differ.
 
 FastAPI foundation with environment-driven model tiers and async Ollama and

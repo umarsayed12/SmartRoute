@@ -1,0 +1,32 @@
+# Package the unpublished source SDK and configure its isolated tests.
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "smartroute-client"
+version = "0.1.0"
+description = "Workspace-authenticated client for the SmartRoute model routing gateway"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "umarsayed12" }]
+dependencies = ["httpx>=0.27,<1"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[project.urls]
+Repository = "https://github.com/umarsayed12/SmartRoute"
+Documentation = "https://github.com/umarsayed12/SmartRoute/tree/main/sdk"
+
+[project.scripts]
+smartroute = "smartroute_client.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smartroute_client"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

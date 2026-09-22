@@ -5,7 +5,8 @@
 The default backend retains the local prototype. An authenticated preview adds
 managed login/signup/recovery, a private workspace, sign-out, and API-key creation
 and revocation, encrypted provider credentials, and owned model configuration/routing.
-The SDK/integration flow and deployment remain upcoming checkpoints in the
+M4 adds setup gating and an Integration page for the source SDK/CLI. Public deployment
+and registry publication remain M5 work in the
 [hosted architecture plan](../docs/HOSTED_ARCHITECTURE.md). Neither development
 mode is a public-production deployment.
 
@@ -76,6 +77,21 @@ Hosted forced routing to a missing/disabled tier returns a setup error, never
 a medium or shared-model fallback. Auto resolves only among enabled owned tiers.
 Availability refreshes every 30 seconds or with the sidebar refresh control.
 Gateway keys can call those models but cannot manage their credentials/configuration.
+
+## Onboarding And Integration
+
+In preview, Playground and Test Lab first show email verification or owned-model
+setup when required. Model reads are distinct from availability probes; saving,
+disabling, or removing a tier refreshes readiness immediately. Transient polling
+errors do not erase an already-ready chat. The backend still independently enforces
+verification, ownership, model configuration, and capacity.
+
+**Integration** shows email/model readiness, active unexpired/unrevoked gateway-key
+count, and SDK request activity, with links to the owning pages. Copy controls provide
+the same-origin gateway URL and source-install/client examples for Python or CLI,
+with PowerShell/Bash commands. No actual gateway/provider key or session token is
+embedded in snippets. Keys are still created and displayed once only in API Keys.
+The page explicitly marks the SDK as unpublished and never suggests a registry install.
 
 ## Playground
 

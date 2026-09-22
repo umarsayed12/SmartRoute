@@ -1,6 +1,6 @@
 // Provide the responsive five-route workspace shell and live gateway status.
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { ArrowUpRight, Boxes, ChevronRight, FlaskConical, KeyRound, LayoutDashboard, ListFilter, LogOut, MessageSquare, RefreshCw, Route, Settings2 } from 'lucide-react'
+import { ArrowUpRight, Boxes, ChevronRight, Code2, FlaskConical, KeyRound, LayoutDashboard, ListFilter, LogOut, MessageSquare, RefreshCw, Route, Settings2 } from 'lucide-react'
 import { NavLink, Navigate, Route as PageRoute, Routes, useLocation } from 'react-router-dom'
 import { api } from './api'
 import { useAuth } from './auth'
@@ -15,6 +15,7 @@ const TestLab = lazy(() => import('./pages/TestLab'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Account = lazy(() => import('./pages/Account'))
 const Models = lazy(() => import('./pages/Models'))
+const Integration = lazy(() => import('./pages/Integration'))
 
 const navigation = [
   { path: '/', label: 'Playground', icon: MessageSquare },
@@ -34,7 +35,12 @@ export default function App() {
   const [checking, setChecking] = useState(true)
   const [tierError, setTierError] = useState(false)
   const [revision, setRevision] = useState(0)
-  const links = auth.config.mode === 'local' ? navigation : [...navigation, { path: '/models', label: 'Models', icon: Boxes }, { path: '/account', label: 'API Keys', icon: KeyRound }]
+  const [hasModels, setHasModels] = useState<boolean | null>(null)
+  const [setupError, setSetupError] = useState(false)
+  const local = auth.config.mode === 'local'
+  const verified = local || auth.account?.user?.email_verified === true
+  const inferenceReady = auth.config.inference_enabled && (local || (verified && hasModels === true))
+  const links = local ? navigation : [...navigation, { path: '/models', label: 'Models', icon: Boxes }, { path: '/account', label: 'API Keys', icon: KeyRound }, { path: '/integration', label: 'Integration', icon: Code2 }]
   const activePage = links.find((item) => item.path === location.pathname) ?? navigation[0]
   const isPlayground = location.pathname === '/'
   const isTestLab = location.pathname === '/testlab'
@@ -47,6 +53,11 @@ export default function App() {
     const controller = new AbortController()
     async function refresh() {
       setChecking(true)
+      if (!local) {
+        void api.models(controller.signal).then((models) => {
+          if (active) { setHasModels(models.some((model) => model.enabled)); setSetupError(false) }
+        }).catch(() => { if (active) setSetupError(true) })
+      }
       const [healthResult, tierResult] = await Promise.allSettled([
         api.health(controller.signal), api.tiers(controller.signal),
       ])
@@ -59,7 +70,7 @@ export default function App() {
     void refresh()
     const timer = window.setInterval(() => void refresh(), 30000)
     return () => { active = false; controller.abort(); window.clearInterval(timer) }
-  }, [revision])
+  }, [revision, local])
 
   return <div className={styles.shell}>
     <a className={styles.skip} href="#workspace">Skip to workspace</a>
@@ -91,10 +102,10 @@ export default function App() {
       </header>
       {signOutError && <div className={styles.authError} role="alert">{signOutError}</div>}
       <div className={styles.stage} hidden={!isPlayground}>
-        {auth.config.inference_enabled ? <Playground tiers={tiers} tierError={tierError} visible={isPlayground} /> : <ModelSetupPending />}
+        {inferenceReady ? <Playground tiers={tiers} tierError={tierError} visible={isPlayground} /> : <ModelSetupPending verified={verified} loading={hasModels === null && !setupError && verified} error={setupError} onRetry={() => setRevision((value) => value + 1)} />}
       </div>
       <div className={styles.stage} hidden={!isTestLab}>
-        {(testLabOpened || isTestLab) && (auth.config.inference_enabled ? <Suspense fallback={<div className={styles.routeLoading} role="status">Loading Test Lab</div>}><TestLab visible={isTestLab} /></Suspense> : <ModelSetupPending />)}
+        {(testLabOpened || isTestLab) && (inferenceReady ? <Suspense fallback={<div className={styles.routeLoading} role="status">Loading Test Lab</div>}><TestLab visible={isTestLab} /></Suspense> : <ModelSetupPending verified={verified} loading={hasModels === null && !setupError && verified} error={setupError} onRetry={() => setRevision((value) => value + 1)} />)}
       </div>
       <Suspense fallback={<div className={styles.routeLoading} role="status">Loading workspace</div>}><Routes>
         <PageRoute path="/" element={null} />
@@ -103,7 +114,8 @@ export default function App() {
         <PageRoute path="/testlab" element={null} />
         <PageRoute path="/settings" element={<Settings />} />
         {auth.config.mode !== 'local' && <PageRoute path="/account" element={<Account />} />}
-        {auth.config.mode !== 'local' && <PageRoute path="/models" element={<Models />} />}
+        {!local && <PageRoute path="/models" element={<Models onChanged={() => setRevision((value) => value + 1)} />} />}
+        {!local && <PageRoute path="/integration" element={<Integration modelsReady={hasModels} onRefresh={() => setRevision((value) => value + 1)} />} />}
         <PageRoute path="*" element={<Navigate to="/" replace />} />
       </Routes></Suspense>
     </main>

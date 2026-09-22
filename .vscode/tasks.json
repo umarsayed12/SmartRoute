@@ -11,6 +11,32 @@
 	},
 	"tasks": [
 		{
+			"label": "install: sdk",
+			"type": "shell",
+			"command": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
+			"args": ["-m", "pip", "install", "--disable-pip-version-check", "--index-url", "https://pypi.org/simple", "build", { "value": "hatchling>=1.27,<2", "quoting": "strong" }, "-e", "./sdk[test]"],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "build: sdk",
+			"type": "shell",
+			"command": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
+			"args": ["-m", "build", "sdk", "--outdir", "sdk/dist", "--no-isolation"],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "test: sdk",
+			"type": "shell",
+			"command": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
+			"args": ["-m", "pytest", "-q", "-c", "sdk/pyproject.toml", "sdk/tests"],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
 			"label": "test: backend",
 			"type": "shell",
 			"command": "${workspaceFolder}/backend/.venv/Scripts/python.exe",

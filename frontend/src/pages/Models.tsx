@@ -11,7 +11,7 @@ import type { Column } from '../components/DataTable'
 import ui from './Workspace.module.css'
 import styles from './Models.module.css'
 
-export default function Models() {
+export default function Models({ onChanged }: { onChanged: () => void }) {
   const auth = useAuth()
   const [credentials, setCredentials] = useState<ProviderCredential[]>([])
   const [models, setModels] = useState<ConfiguredModel[]>([])
@@ -56,7 +56,7 @@ export default function Models() {
     const controller = new AbortController()
     operation.current = controller
     setBusy(true); setError(''); setNotice('')
-    try { await action(controller.signal); if (!controller.signal.aborted) setRevision((value) => value + 1) }
+    try { await action(controller.signal); if (!controller.signal.aborted) { setRevision((value) => value + 1); onChanged() } }
     catch (failure) { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : 'Configuration could not be saved.') }
     finally { operation.current = null; if (!controller.signal.aborted) setBusy(false) }
   }

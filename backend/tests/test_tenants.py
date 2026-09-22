@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -141,6 +142,8 @@ async def preview_client(store: WorkspaceStore) -> AsyncIterator[httpx.AsyncClie
     """Exercise the real authorization boundary with isolated identity and database infrastructure."""
     async def verify(token: str) -> Identity:
         """Resolve only explicit test sessions; cryptographic validation has separate tests."""
+        if token == "synthetic.owner.jwt":
+            return _identity("first")
         if token not in ("browser-first", "browser-second", "browser-unverified"):
             raise InvalidIdentityError("Invalid test session.")
         return _identity(token.removeprefix("browser-"), token != "browser-unverified")
@@ -363,3 +366,64 @@ async def test_workspace_inference_concurrency(
         completed = await asyncio.wait_for(running, timeout=5)
     assert completed.status_code == 200
     assert (await preview_client.post("/v1/chat/completions", headers=headers, json=body)).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_source_sdk_onboarding_to_revocation(preview_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise source SDK setup, inference, feedback, isolation, and revocation against real routes."""
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "sdk" / "src"))
+    from smartroute_client import OwnerSetup, SmartRoute, SmartRouteError
+
+    loop = asyncio.get_running_loop()
+    def gateway(request: httpx.Request) -> httpx.Response:
+        """Bridge the synchronous SDK transport into the isolated authenticated ASGI app."""
+        future = asyncio.run_coroutine_threadsafe(preview_client.request(
+            request.method, request.url.raw_path.decode("ascii"), headers=dict(request.headers), content=request.content,
+        ), loop)
+        response = future.result(timeout=10)
+        return httpx.Response(response.status_code, headers=response.headers, content=response.content)
+
+    def setup_workspace() -> None:
+        """Explicit owner setup stores a private model without any inference side effects."""
+        with OwnerSetup("http://localhost:8001", "synthetic.owner.jwt", transport=httpx.MockTransport(gateway)) as owner:
+            credential = owner.create_credential("openai", "SDK setup", "synthetic-provider-key")
+            owner.configure_model("small", credential_id=credential["id"], model="test-small", input_price_per_1k=1, output_price_per_1k=2)
+            assert "synthetic-provider-key" not in str(owner.credentials())
+
+    await asyncio.to_thread(setup_workspace)
+    owner_headers = {"Authorization": "Bearer browser-first"}
+    first_key = (await preview_client.post("/v1/api-keys", headers=owner_headers, json={"name": "SDK integration"})).json()
+    second_key = (await preview_client.post("/v1/api-keys", headers={"Authorization": "Bearer browser-second"}, json={"name": "Other workspace"})).json()
+    provider = AsyncMock(return_value=providers.Completion("SDK answer", 10, 2, 5, "test-small", "stop", {}))
+    monkeypatch.setattr(providers, "chat", provider)
+
+    def exercise() -> None:
+        """Use ordinary gateway keys for data operations, never provider administration."""
+        with SmartRoute("http://localhost:8001", first_key["key"], transport=httpx.MockTransport(gateway)) as client:
+            assert client.workspace()["auth_type"] == "api_key"
+            assert len(client.models()) == 1
+            result = client.chat("Hello", max_tokens=32)
+            assert result.content == "SDK answer" and result.cost_usd == pytest.approx(0.014)
+            assert client.feedback(result.request_id, good=True)["score"] == 1
+            detail = client.request(result.request_id)
+            assert detail["source"] == "sdk" and detail["feedback"] == 1 and len(detail["attempts"]) == 1
+            assert client.requests(source="sdk")["total"] == 1
+            with SmartRoute("http://localhost:8001", second_key["key"], transport=httpx.MockTransport(gateway)) as other:
+                assert other.requests()["total"] == 0
+                with pytest.raises(SmartRouteError) as denied:
+                    other.request(result.request_id)
+                assert denied.value.status_code == 404
+                with pytest.raises(SmartRouteError) as denied_feedback:
+                    other.feedback(result.request_id, good=False)
+                assert denied_feedback.value.status_code == 404
+
+    await asyncio.to_thread(exercise)
+    assert (await preview_client.delete(f"/v1/api-keys/{first_key['id']}", headers=owner_headers)).status_code == 204
+    def revoked() -> None:
+        """The already issued SDK key loses access immediately after revocation."""
+        with SmartRoute("http://localhost:8001", first_key["key"], transport=httpx.MockTransport(gateway)) as client:
+            with pytest.raises(SmartRouteError) as denied:
+                client.models()
+            assert denied.value.status_code == 401
+    await asyncio.to_thread(revoked)
+    assert provider.await_count == 1

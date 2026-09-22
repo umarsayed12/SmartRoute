@@ -11,11 +11,12 @@ usage, estimated cost, feedback, and routing decisions for that workspace.
 the Playground, Dashboard, Requests, Test Lab, and Settings. An authenticated
 loopback preview now supports Neon login, private workspaces, gateway-key management,
 encrypted OpenAI/Anthropic credentials, owned model routing, and private attempt-level
-history. M3 is implemented; the M4 SDK/integration flow and M5 public deployment
-remain pending. Provider protocol tests use mocked HTTP, not live paid inference.
+history. M4 adds the source Python SDK/CLI, setup gating, and Integration page.
+M5 public deployment and SDK publishing remain pending. Provider protocol tests
+use mocked HTTP, not live paid inference.
 
 The default local HTTP app is still unauthenticated and must remain local-only.
-Use the documented authenticated preview to test M3. Public hosted startup
+Use the documented authenticated preview to test the app and SDK. Public hosted startup
 is deliberately blocked until the migration's security gates are met. SmartRoute
 will initially be free; users remain responsible for their provider's model charges.
 
@@ -51,7 +52,19 @@ Failed calls with unreported usage have unknown cost, not zero; dashboard saving
 cover completed requests only and are not a provider invoice. See the
 [routing and accounting details](docs/HOSTED_ARCHITECTURE.md#m3-bring-your-own-models).
 
-## Planned Structure
+## Python Client
+
+The Python client is available from this checkout, **not yet from PyPI**:
+
+```powershell
+python -m pip install ./sdk
+```
+
+Use a workspace gateway key, not a provider key. The web **Integration** page
+provides the current gateway URL and secret-safe examples. See the
+[SDK guide](sdk/README.md) for Python, CLI, owner setup, and local build instructions.
+
+## Repository Layout
 
 ```text
 backend/   FastAPI gateway, routing, request logs, and training

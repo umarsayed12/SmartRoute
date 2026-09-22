@@ -4,12 +4,13 @@
 Approved on 2026-09-22. This document supersedes the original single-workspace
 deployment assumptions. The original Phases 1-11 remain a working local prototype.
 
-**Current checkpoint: M3 owned-model preview.** Neon migrations through
+**Current checkpoint: M4 SDK and onboarding preview.** Neon migrations through
 `0002_owned_inference` are applied. Managed sign-in, owner workspaces, gateway keys,
 encrypted provider configuration, owned cloud routing, private attempt history,
 settings/stats, and workspace-specific training run in a separate preview app.
 Provider contracts and failures are tested with mocked HTTP; live paid inference
-has not been verified. M4 SDK/onboarding is next. Public hosted mode remains
+has not been verified. The source SDK/CLI and web Integration flow are implemented.
+SDK publication and public hosted mode remain
 blocked until the M5 deployment gates are complete.
 
 ## Product Contract
@@ -20,9 +21,9 @@ owns one private workspace. At least one enabled model must be configured before
 chat or Test Lab runs are accepted. There are no shared hosted Ollama defaults.
 
 The website provides login, model configuration, request inspection, feedback,
-statistics, training controls, and an Integration page. The Integration page will
-show the installation command and a one-time gateway API key only after the SDK
-is actually published. Do not advertise a package as installable before publication.
+statistics, training controls, and an Integration page. Integration shows source
+checkout installation, never a registry install before publication. One-time
+gateway keys appear only in API Keys and are never embedded in Integration examples.
 
 The SDK calls the backend, not the browser app. Its API key identifies a workspace.
 Provider configuration can be managed through the website or explicit SDK setup
@@ -258,9 +259,8 @@ do not put a public proxy in front of this preview.
 | Credential creation/rotation and model configuration | Email-verified owner session only |
 | Model reads, chat and Test Lab execution | Workspace session or gateway key; session inference requires verified email |
 
-The SDK is still unpublished. The API Keys page deliberately does not present a
-working installation command. Provider configuration is available in Models;
-full integration guidance remains M4 work. Recovery/signup screens call managed APIs; real email delivery
+The SDK is still unpublished; Integration provides source-checkout installation.
+Provider configuration is available in Models. Recovery/signup screens call managed APIs; real email delivery
 and recovery links must be verified in the configured Neon project before deployment.
 
 ### M3: Bring Your Own Models
@@ -326,11 +326,34 @@ the user elected mocked provider validation for this checkpoint.
 
 ### M4: Onboarding And SDK
 
-Complete website model setup, key management, Integration instructions, and the
-httpx-based Python client/CLI. Use gateway keys for identity and explicit setup
-methods for saved provider configurations. Test a new account through model setup,
-SDK chat, private history, feedback, and key revocation. Do not publish misleading
-installation instructions before the package is available.
+Implemented without enabling public hosted mode or publishing to a registry.
+The Python 3.11+ synchronous SDK uses only httpx at runtime. `SmartRoute` authenticates
+with a saved gateway key and exposes chat, feedback, health, models, workspace,
+history, statistics, and explicit Test Lab execution. Constructors do not call
+providers or mutate configuration. Roots accept optional `/v1`; remote gateways
+require HTTPS, and redirects/automatic retries are disabled. Errors retain only
+safe status/audit identifiers, not arbitrary server bodies. Chat parsing rejects
+missing costs and invalid confidence/flags instead of inventing defaults.
+
+`OwnerSetup` is a separate explicit short-lived managed-session client for provider
+and tier administration. It does not acquire sessions, handle passwords, read
+browser storage, or elevate a gateway key. Backend owner/email checks remain
+unchanged. The CLI's setup command opens the web Models page; its runtime commands
+use environment-based gateway credentials rather than secret command-line flags.
+
+The web app gates inference on verified email and at least one enabled owned model.
+Model changes refresh readiness immediately; transient polling errors do not clear
+an existing conversation. Integration links verification, model setup, gateway keys,
+and SDK activity, and provides secret-free source-install and Python/CLI examples.
+Gateway keys remain one-time displays on API Keys. No example embeds a real secret
+or automatically rates an unreviewed response.
+
+SDK unit/CLI tests use synthetic HTTP. An integration test connects the real SDK
+to authenticated backend routes with isolated SQL and mocked provider generation,
+covering new-owner setup, gateway-key chat, feedback, private attempts, cross-user
+denial, and revocation. Wheel/source-distribution builds are local only. Live paid
+inference, package-name availability, PyPI publishing, and public deployment remain
+M5 checks. See [the SDK guide](../sdk/README.md) for the current source workflow.
 
 ### M5: Public Deployment Gate
 
