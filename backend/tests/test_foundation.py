@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -17,11 +18,11 @@ MockHttp = Callable[[Callable[[httpx.Request], httpx.Response]], None]
 
 
 @pytest.fixture(autouse=True)
-def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def clean_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep settings tests independent of the developer's environment."""
     for name in Settings.model_fields:
         monkeypatch.delenv(name, raising=False)
-    configured = Settings(_env_file=None)
+    configured = Settings(_env_file=None, MODEL_PATH=tmp_path / "router_model.joblib")
     for module in (main, ollama, openai_compatible):
         monkeypatch.setattr(module, "settings", configured)
 
@@ -195,6 +196,7 @@ def test_health(
         monkeypatch.setattr(main, "settings", Settings(
             _env_file=None, LARGE_MODEL="example-model",
             LARGE_BASE_URL="https://example.test",
+            MODEL_PATH=main.settings.MODEL_PATH,
         ))
 
     def handle(request: httpx.Request) -> httpx.Response:
@@ -217,7 +219,22 @@ def test_health(
         "status": "ok",
         "tiers": ["small", "medium", "large"] if large_enabled else ["small", "medium"],
         "ollama": state == "ok",
+        "model_file_present": False,
     }
+
+
+@pytest.mark.parametrize("present", [False, True])
+def test_health_model_file_presence(mock_http: MockHttp, present: bool) -> None:
+    """Report artifact existence without loading or trusting its serialized contents."""
+    if present:
+        main.settings.MODEL_PATH.write_bytes(b"presence test only")
+    mock_http(lambda request: httpx.Response(200, json={"models": []}))
+
+    with TestClient(main.app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["model_file_present"] is present
 
 
 @pytest.mark.parametrize("origin", ["http://localhost:5173", "http://untrusted.test"])

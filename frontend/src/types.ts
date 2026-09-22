@@ -58,6 +58,7 @@ export interface Health {
   status: string
   tiers: TierName[]
   ollama: boolean
+  model_file_present: boolean
 }
 
 export interface Tier {
@@ -110,6 +111,7 @@ export interface RequestFilters {
   escalated?: boolean
   feedback?: -1 | 0 | 1
   search?: string
+  source?: RequestSummary['source']
 }
 
 export interface Stats {

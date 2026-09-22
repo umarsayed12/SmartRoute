@@ -52,12 +52,14 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 API documentation: <http://127.0.0.1:8000/docs>.
 
 ```json
-{"status":"ok","tiers":["small","medium"],"ollama":true}
+{"status":"ok","tiers":["small","medium"],"ollama":true,"model_file_present":false}
 ```
 
 `ollama: false` means the server did not respond successfully to `/api/tags`
 within the configured one-second HTTP timeouts. The backend remains healthy;
 this flag checks reachability, not whether the two models have been downloaded.
+`model_file_present` checks the configured learned-model path without loading it.
+It does not assert that the artifact or its training report is valid.
 
 ## Configuration
 
@@ -204,6 +206,7 @@ counts all matching rows before pagination. Supported query parameters:
 | `tier` | Final tier: small, medium, or large |
 | `escalated` | `true` or `false` |
 | `feedback` | `1` positive, `-1` negative, `0` unrated; omit for all |
+| `source` | `api`, `playground`, `testlab`, or `sdk`; omit for all |
 | `search` | Literal substring in stored prompt or answer; SQLite ASCII case folding |
 
 List items contain previews and metadata, not full prompts, answers, or feature

@@ -84,11 +84,12 @@ def get_requests(
     escalated: bool | None = None,
     feedback: Annotated[int | None, Query(ge=-1, le=1)] = None,
     search: str | None = None,
+    source: Literal["api", "playground", "testlab", "sdk"] | None = None,
 ) -> dict[str, Any]:
     """List newest request summaries with filters and offset pagination."""
     return db.list_requests(
         limit=limit, offset=offset, tier=tier,
-        escalated=escalated, feedback=feedback, search=search,
+        escalated=escalated, feedback=feedback, search=search, source=source,
     )
 
 

@@ -118,6 +118,10 @@ def requests_with_feedback() -> None:
     ({"search": "%"}, ["first"]),
     ({"search": "_"}, ["third"]),
     ({"search": "' OR 1=1 --"}, []),
+    ({"source": "api"}, ["third", "first"]),
+    ({"source": "playground"}, ["second"]),
+    ({"source": "sdk"}, []),
+    ({"source": "testlab"}, []),
     ({"tier": "medium", "escalated": False, "feedback": 0}, ["second"]),
 ])
 def test_request_filters(
@@ -169,6 +173,7 @@ def test_feedback_and_training_rows(requests_with_feedback: None) -> None:
 
 @pytest.mark.parametrize("filters", [
     {"limit": 0}, {"limit": 101}, {"offset": -1}, {"tier": "unknown"}, {"feedback": 2},
+    {"source": "unknown"},
 ])
 def test_invalid_filters(filters: dict[str, Any]) -> None:
     """Invalid pagination and filter values fail before executing a query."""
@@ -215,7 +220,7 @@ async def test_history_combined_filters(
 ) -> None:
     """Parse false booleans and unrated feedback filters from HTTP query strings."""
     response = await client.get("/v1/requests", params={
-        "tier": "medium", "escalated": "false", "feedback": "0", "search": "hello",
+        "tier": "medium", "escalated": "false", "feedback": "0", "search": "hello", "source": "playground",
     })
 
     assert response.status_code == 200
@@ -238,6 +243,7 @@ async def test_empty_history_and_unknown_id(client: httpx.AsyncClient) -> None:
 @pytest.mark.parametrize("parameters", [
     {"limit": "0"}, {"limit": "101"}, {"offset": "-1"}, {"tier": "unknown"},
     {"escalated": "maybe"}, {"feedback": "2"}, {"feedback": "bad"},
+    {"source": "unknown"},
 ])
 async def test_history_query_validation(
     client: httpx.AsyncClient, parameters: dict[str, str]

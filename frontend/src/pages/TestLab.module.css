@@ -1,0 +1,20 @@
+/* Suite controls, truthful run progress, and side-by-side measured summaries. */
+.controls { display: grid; grid-template-columns: minmax(150px, 1.4fr) minmax(110px, 1fr) 100px auto auto; gap: 12px; align-items: end; }
+.controls button { min-height: 36px; }
+.progress { display: flex; align-items: center; gap: 10px; min-height: 55px; color: var(--accent); font-size: 12px; border-bottom: 1px solid var(--border); margin-top: 12px; }
+.progress > span:last-child { margin-left: auto; color: var(--muted); }
+.comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.comparison > section, .summary > section { min-width: 0; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.comparison .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.count { color: var(--muted); font: 10px var(--mono); margin-left: 13px; }
+.costs { display: flex; gap: 20px; flex-wrap: wrap; color: var(--muted); font: 10px/1.7 var(--mono); margin-top: 13px; }
+.prompt { border: 0; padding: 0; background: none; color: var(--text); width: 260px; max-width: 300px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; font-size: 12px; cursor: pointer; }
+.prompt:hover { color: var(--accent); }
+.tabs { display: flex; gap: 3px; border: 1px solid var(--border); border-radius: 5px; padding: 3px; }
+.tabs button { padding: 6px 12px; font-size: 11px; border: 0; border-radius: 3px; color: var(--muted); background: none; cursor: pointer; }
+.tabs .activeTab { color: var(--accent); background: #263a30; }
+.pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 17px; color: var(--muted); font-size: 11px; }
+@media (max-width: 1250px) { .controls { grid-template-columns: 1fr 1fr 100px; } .controls button { grid-column: auto; } .controls button:last-child { grid-column: span 2; } }
+@media (max-width: 850px) { .comparison { grid-template-columns: 1fr; gap: 0; } .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .controls { grid-template-columns: 1fr 1fr; } .controls label:first-child { grid-column: 1 / -1; } .controls button:last-child { grid-column: 1 / -1; } }

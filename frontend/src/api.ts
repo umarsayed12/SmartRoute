@@ -86,9 +86,9 @@ export const api = {
   train: (signal?: AbortSignal) => request<TrainingResult>('/v1/train', { method: 'POST', signal }),
   trainingStatus: (signal?: AbortSignal) => request<TrainingStatus>('/v1/train/status', { signal }),
   suites: (signal?: AbortSignal) => request<Suite[]>('/v1/testlab/suites', { signal }),
-  runSuite: (mode: RunMode, limit?: number, signal?: AbortSignal) => (
+  runSuite: (mode: RunMode, limit?: number, signal?: AbortSignal, suite = 'default') => (
     request<TestLabResult>('/v1/testlab/run', {
-      method: 'POST', signal, body: JSON.stringify({ suite: 'default', mode, limit }),
+      method: 'POST', signal, body: JSON.stringify({ suite, mode, limit }),
     })
   ),
   runs: (limit = 50, offset = 0, signal?: AbortSignal) => (

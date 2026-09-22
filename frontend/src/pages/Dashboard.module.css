@@ -1,0 +1,7 @@
+/* Scan-friendly KPI and chart layouts that collapse cleanly on narrow screens. */
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.chartGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+.chartGrid > section { min-width: 0; }
+@media (max-width: 1250px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .chartGrid { grid-template-columns: 1fr; gap: 0; } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 380px) { .kpis { grid-template-columns: 1fr; } }

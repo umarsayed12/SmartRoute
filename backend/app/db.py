@@ -122,6 +122,7 @@ def list_requests(
     escalated: bool | None = None,
     feedback: int | None = None,
     search: str | None = None,
+    source: str | None = None,
 ) -> dict[str, Any]:
     """Return a newest-first summary page; tier means final tier and feedback 0 means unrated."""
     if not 1 <= limit <= 100 or offset < 0:
@@ -130,9 +131,14 @@ def list_requests(
         raise ValueError("Unknown tier filter.")
     if feedback not in (None, -1, 0, 1):
         raise ValueError("Feedback filter must be -1, 0, or 1.")
+    if source not in (None, "api", "playground", "testlab", "sdk"):
+        raise ValueError("Unknown request source filter.")
 
     conditions: list[str] = []
     parameters: list[Any] = []
+    if source is not None:
+        conditions.append("source = ?")
+        parameters.append(source)
     if tier is not None:
         conditions.append("tier_final = ?")
         parameters.append(tier)

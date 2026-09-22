@@ -1,0 +1,13 @@
+/* Shared chart sizing, legends, and tooltip styling for actual dashboard data. */
+.chart { height: 250px; width: 100%; min-width: 0; font-family: var(--mono); font-size: 10px; }
+.tall { height: 280px; }
+.chart :global(.recharts-default-tooltip) { background: #22272a !important; border: 1px solid var(--border-strong) !important; border-radius: 5px; color: var(--text); font-size: 11px; }
+.chart :global(.recharts-tooltip-label) { color: var(--text); }
+.chart :global(.recharts-cartesian-axis-tick-value) { fill: var(--muted); }
+.empty { display: flex; align-items: center; justify-content: center; height: 250px; color: var(--muted); font-size: 12px; }
+.legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 15px; margin-top: 9px; font-size: 10px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 7px; height: 7px; border-radius: 2px; }
+.small { background: var(--small); }
+.medium { background: var(--medium); }
+.large { background: var(--large); }

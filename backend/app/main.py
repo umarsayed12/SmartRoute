@@ -40,7 +40,7 @@ app.include_router(testlab_router)
 
 @app.get("/health")
 async def health() -> dict[str, str | list[str] | bool]:
-    """Return enabled tiers and a one-second-timeout Ollama reachability check."""
+    """Report backend health, Ollama reachability, and learned-model file presence."""
     ollama_available = False
     try:
         async with httpx.AsyncClient(timeout=1.0) as client:
@@ -51,8 +51,13 @@ async def health() -> dict[str, str | list[str] | bool]:
             ollama_available = True
     except httpx.HTTPError:
         pass
+    try:
+        model_file_present = settings.MODEL_PATH.is_file()
+    except OSError:
+        model_file_present = False
     return {
         "status": "ok",
         "tiers": [tier.name for tier in settings.TIERS if tier.enabled],
         "ollama": ollama_available,
+        "model_file_present": model_file_present,
     }

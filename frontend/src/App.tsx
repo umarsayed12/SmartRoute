@@ -1,12 +1,16 @@
 // Provide the responsive five-route workspace shell and live gateway status.
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { ArrowUpRight, ChevronRight, FlaskConical, LayoutDashboard, ListFilter, MessageSquare, RefreshCw, Route, Settings2 } from 'lucide-react'
 import { NavLink, Navigate, Route as PageRoute, Routes, useLocation } from 'react-router-dom'
 import { api } from './api'
 import type { Health, Tier } from './types'
 import Playground from './pages/Playground'
-import PlannedPage from './pages/PlannedPage'
 import styles from './App.module.css'
+
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Requests = lazy(() => import('./pages/Requests'))
+const TestLab = lazy(() => import('./pages/TestLab'))
+const Settings = lazy(() => import('./pages/Settings'))
 
 const navigation = [
   { path: '/', label: 'Playground', icon: MessageSquare },
@@ -25,6 +29,8 @@ export default function App() {
   const [revision, setRevision] = useState(0)
   const activePage = navigation.find((item) => item.path === location.pathname) ?? navigation[0]
   const isPlayground = location.pathname === '/'
+  const isTestLab = location.pathname === '/testlab'
+  const [testLabOpened, setTestLabOpened] = useState(isTestLab)
 
   useEffect(() => { document.title = `SmartRoute | ${activePage.label}` }, [activePage.label])
 
@@ -56,7 +62,7 @@ export default function App() {
       </NavLink>
       <div className={styles.navCaption}>WORKSPACE</div>
       <nav className={styles.navigation} aria-label="Main navigation">
-        {navigation.map(({ path, label, icon: Icon }) => <NavLink key={path} to={path} end={path === '/'} title={label} className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navActive : ''}`}>
+        {navigation.map(({ path, label, icon: Icon }) => <NavLink key={path} to={path} end={path === '/'} title={label} onClick={() => { if (path === '/testlab') setTestLabOpened(true) }} className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navActive : ''}`}>
           <Icon size={18} strokeWidth={1.7} /><span>{label}</span>
           {path === '/' && <span className={styles.navIndicator} />}
         </NavLink>)}
@@ -78,11 +84,17 @@ export default function App() {
       <div className={styles.stage} hidden={!isPlayground}>
         <Playground tiers={tiers} tierError={tierError} visible={isPlayground} />
       </div>
-      <Routes>
+      <div className={styles.stage} hidden={!isTestLab}>
+        {(testLabOpened || isTestLab) && <Suspense fallback={<div className={styles.routeLoading} role="status">Loading Test Lab</div>}><TestLab visible={isTestLab} /></Suspense>}
+      </div>
+      <Suspense fallback={<div className={styles.routeLoading} role="status">Loading workspace</div>}><Routes>
         <PageRoute path="/" element={null} />
-        {navigation.slice(1).map((item) => <PageRoute key={item.path} path={item.path} element={<PlannedPage title={item.label} />} />)}
+        <PageRoute path="/dashboard" element={<Dashboard />} />
+        <PageRoute path="/requests" element={<Requests />} />
+        <PageRoute path="/testlab" element={null} />
+        <PageRoute path="/settings" element={<Settings />} />
         <PageRoute path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      </Routes></Suspense>
     </main>
   </div>
 }

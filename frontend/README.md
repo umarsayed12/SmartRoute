@@ -1,9 +1,9 @@
 <!-- Setup and behavior notes for the SmartRoute frontend workspace. -->
 # SmartRoute Frontend
 
-React 18, TypeScript, Vite, and CSS Modules. Phase 10 implements the Playground
-and five-route navigation shell. Dashboard, Requests, Test Lab, and Settings
-are explicitly marked as Phase 11 views; they do not display fabricated data.
+React 18, TypeScript, Vite, and CSS Modules. Phase 11 provides the Playground,
+Dashboard, Requests explorer, Test Lab, and Settings using real gateway APIs.
+Views load on demand and display explicit loading, empty, and error states.
 
 ## Run (Windows PowerShell)
 
@@ -54,6 +54,35 @@ Confidence is a routing signal, not a calibrated correctness probability.
 The highest available backend tier reports 1.0 by convention. Reference costs
 are hypothetical configured premium costs; local Ollama usage is free.
 
+## Dashboard, Requests, Test Lab, And Settings
+
+- Dashboard offers 7/14/30-day KPIs, tier distribution, feedback by tier, a
+  dual-axis savings/feedback timeline, and latency percentiles. Unrated quality
+  and missing latency remain N/A rather than being presented as zero quality.
+- Requests filters by final tier, escalation, rating, source, and submitted
+  search text. Page size and previous/next controls use server pagination.
+  Open a prompt to inspect its full conversation, answer, feature JSON, routing
+  reason, token counts, and costs. The native modal drawer closes with Escape
+  or its close control and supports replacing historical feedback with a note.
+- Test Lab selects a suite, mode, and prefix limit. Runs show a spinner rather
+  than fabricated per-prompt progress. Auto-vs-Large comparisons run sequentially,
+  retain completed results if the other mode fails, and show separate summaries
+  and result tabs. Each result opens its logged request. Run history is paginated.
+  In-progress run state survives sidebar navigation; reloading the browser can
+  lose the local result view, so inspect history before retrying an uncertain run.
+- Settings shows model availability/prices, a confidence slider, escalation
+  budget, reference prices, policy preference, and health including actual model
+  file presence. Save persists validated changes; reset discards only unsaved
+  edits. Retraining displays the real outcome, class-ordered confusion matrix,
+  evaluation type, and last-trained time. Insufficient data stays an explicit
+  result, not a successful training claim.
+
+Source filtering and `model_file_present` in `/health` require the Phase 11
+backend. Settings and feedback actions change backend data; the browser itself
+does not store provider credentials. The health/model-list endpoint does not
+perform inference. A present model file is not the same as a validated training
+report or a guarantee of prediction quality.
+
 ## Validation
 
 ```powershell
@@ -69,8 +98,11 @@ Lucide, and Recharts is installed for the next phase's dashboard.
 
 Browser verification covers desktop/mobile layout, live chat, sequential compare
 payloads, answer selection, feedback, errors, cancellation, clear, and keyboard
-input. Mocked browser responses are used for deterministic error and feedback
-checks so test ratings do not alter real training labels.
+input. Phase 11 checks also cover charts and empty periods, query filters,
+pagination, drawer inspection, historical feedback, settings validation and save
+retry, training results, sequential Test Lab comparison, and responsive tables.
+Mocked browser responses are used for deterministic writes and failure cases so
+test ratings and settings do not alter real backend data.
 
 Production serving must route SPA URLs to `index.html` and proxy API traffic to
 the backend. Production hosting and Docker configuration belong to Phase 13.

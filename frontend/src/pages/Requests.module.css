@@ -1,0 +1,10 @@
+/* Request filtering, readable preview buttons, and stable pagination controls. */
+.filters { display: grid; grid-template-columns: minmax(210px, 2fr) repeat(4, minmax(100px, 1fr)) 36px; gap: 12px; align-items: end; margin-bottom: 23px; }
+.search { display: flex; align-items: end; gap: 6px; min-width: 0; }
+.search label { flex: 1; min-width: 0; }
+.prompt { display: block; max-width: 300px; width: 270px; text-align: left; border: 0; padding: 2px 0; color: var(--text); background: none; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.prompt:hover { color: var(--accent); }
+.escalated { color: var(--medium); }
+.pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-top: 18px; color: var(--muted); font: 10px var(--mono); }
+@media (max-width: 1200px) { .filters { grid-template-columns: repeat(4, minmax(0, 1fr)) 36px; } .search { grid-column: 1 / -1; } }
+@media (max-width: 620px) { .filters { grid-template-columns: 1fr 1fr; } .search { grid-column: 1 / -1; } .pagination { align-items: flex-start; } }
