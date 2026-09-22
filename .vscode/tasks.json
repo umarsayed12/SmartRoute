@@ -1,4 +1,4 @@
-// Run workspace validation and explicitly requested provider smoke tests.
+// Run isolated backend checks and frontend production-build and lint validation.
 {
 	"version": "2.0.0",
 	"windows": {
@@ -55,15 +55,6 @@
 			"type": "shell",
 			"command": "npm.cmd",
 			"args": ["--prefix", "${workspaceFolder}/frontend", "run", "lint"],
-			"isBackground": false,
-			"problemMatcher": []
-		},
-		{
-			"label": "smoke: maq routing",
-			"type": "shell",
-			"command": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
-			"args": ["-m", "scripts.try_maq_routing"],
-			"options": { "cwd": "${workspaceFolder}/backend" },
 			"isBackground": false,
 			"problemMatcher": []
 		}
