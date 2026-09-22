@@ -29,16 +29,14 @@ def _feedback_label(tier_final: str, feedback: int) -> str:
     return tiers[min(index + int(feedback == -1), len(tiers) - 1)]
 
 
-def train() -> dict[str, Any]:
-    """Train from saved feedback, returning metrics or a non-destructive skip reason."""
-    db.init_db()
-    rows = db.rows_for_training()
+def fit_router(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], Pipeline | None]:
+    """Fit a policy from caller-scoped rows without reading or writing global artifacts."""
     row_count = len(rows)
     if row_count < 30:
         return {
             "trained": False, "n_rows": row_count,
             "message": f"Need at least 30 labelled requests to train; found {row_count}.",
-        }
+        }, None
 
     try:
         features = [json.loads(row["features_json"]) for row in rows]
@@ -52,14 +50,14 @@ def train() -> dict[str, Any]:
         return {
             "trained": False, "n_rows": row_count,
             "message": "Saved features or feedback are invalid; the existing model was not changed.",
-        }
+        }, None
 
     counts = Counter(labels)
     if len(counts) < 2:
         return {
             "trained": False, "n_rows": row_count,
             "message": "Need feedback covering at least two tier labels to train a classifier.",
-        }
+        }, None
 
     pipeline = Pipeline([
         ("scaler", StandardScaler()),
@@ -87,6 +85,15 @@ def train() -> dict[str, Any]:
         "evaluation": evaluation,
     }
     pipeline.fit(vectors, labels)
+    return metadata, pipeline
+
+
+def train() -> dict[str, Any]:
+    """Train the local prototype's policy and persist it without changing failed attempts."""
+    db.init_db()
+    metadata, pipeline = fit_router(db.rows_for_training())
+    if pipeline is None:
+        return metadata
 
     model_path = settings.MODEL_PATH
     model_path.parent.mkdir(parents=True, exist_ok=True)

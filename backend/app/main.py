@@ -63,3 +63,15 @@ async def health() -> dict[str, str | list[str] | bool]:
         "ollama": ollama_available,
         "model_file_present": model_file_present,
     }
+
+
+@app.get("/v1/client-config")
+def client_config() -> dict[str, str | bool | None]:
+    """Identify the local prototype without exposing hosted credentials."""
+    return {"mode": "local", "auth_url": None, "inference_enabled": True}
+
+
+if settings.APP_MODE == "preview":
+    from app.hosted.main import create_preview_app
+
+    app = create_preview_app()

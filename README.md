@@ -8,11 +8,13 @@ selects an appropriate configured tier, evaluates whether to escalate, and recor
 usage, estimated cost, feedback, and routing decisions for that workspace.
 
 **Status: hosted migration in progress.** The completed local prototype includes
-the Playground, Dashboard, Requests, Test Lab, and Settings. The Neon foundation
-is being added in tested checkpoints. Login, tenant-scoped HTTP routes, hosted
-model onboarding, and the published SDK are not complete yet.
+the Playground, Dashboard, Requests, Test Lab, and Settings. An authenticated
+loopback preview now supports Neon login, private workspaces, gateway-key management,
+and tenant-scoped data access. Hosted model onboarding and the published SDK are
+not complete yet.
 
-The current HTTP app is unauthenticated and must remain local-only. Hosted startup
+The default local HTTP app is still unauthenticated and must remain local-only.
+Use the documented authenticated preview to test M2. Public hosted startup
 is deliberately blocked until the migration's security gates are met. SmartRoute
 will initially be free; users remain responsible for their provider's model charges.
 

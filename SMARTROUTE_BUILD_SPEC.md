@@ -11,6 +11,9 @@
 
 ## Active Hosted Migration
 
+Current progress: M1 is complete; M2 has an authenticated loopback preview.
+M3 provider setup and the M5 public-hosting guard remain pending.
+
 The detailed architecture, security boundaries, setup, and acceptance criteria are
 in [docs/HOSTED_ARCHITECTURE.md](docs/HOSTED_ARCHITECTURE.md). Follow these checkpoints
 in order, test and push each one, and stop for the owner's "next" after pushing.

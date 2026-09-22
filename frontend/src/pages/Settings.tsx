@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { BrainCircuit, Check, LoaderCircle, RefreshCw, RotateCcw, Save, X } from 'lucide-react'
 import { api } from '../api'
+import { useAuth } from '../auth'
 import { formatCost } from '../format'
 import type { Health, RuntimeSettings, Tier, TrainingResult, TrainingStatus } from '../types'
 import DataTable from '../components/DataTable'
@@ -27,6 +28,7 @@ function parseDraft(draft: Draft): RuntimeSettings {
 }
 
 export default function Settings() {
+  const auth = useAuth()
   const [baseline, setBaseline] = useState<RuntimeSettings | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [tiers, setTiers] = useState<Tier[]>([])
@@ -129,7 +131,7 @@ export default function Settings() {
   ]
   const checks = [
     { name: 'Backend', state: health ? health.status === 'ok' : null, yes: 'Online', no: 'Unavailable' },
-    { name: 'Ollama', state: health?.ollama ?? null, yes: 'Reachable', no: 'Unavailable' },
+    ...(auth.config.mode === 'local' ? [{ name: 'Ollama', state: health?.ollama ?? null, yes: 'Reachable', no: 'Unavailable' }] : []),
     { name: 'Model file', state: health?.model_file_present ?? null, yes: 'Present', no: 'Not detected' },
   ]
 
@@ -137,7 +139,7 @@ export default function Settings() {
     <div className={ui.toolbar}><h2>Gateway configuration</h2><button type="button" className={ui.iconButton} aria-label="Refresh settings" title="Refresh settings" disabled={loading || saving || training || dirty} onClick={refresh}><RefreshCw size={15} /></button></div>
     {loadError && <div className={ui.error} role="alert">{loadError}<button type="button" className={ui.button} disabled={dirty || saving || training} onClick={refresh}>Retry</button></div>}
     {loading && !draft && <div className={ui.loading} role="status"><LoaderCircle className={ui.spinner} size={20} />Loading configuration</div>}
-    <section><h2 className={ui.sectionTitle}>Model tiers</h2><DataTable rows={tiers} columns={columns} rowKey={(tier) => tier.name} label="Model tier configuration" emptyText={loading ? 'Checking models' : 'Tier status unavailable'} /></section>
+    <section><h2 className={ui.sectionTitle}>Model tiers</h2><DataTable rows={tiers} columns={columns} rowKey={(tier) => tier.name} label="Model tier configuration" emptyText={loading ? 'Checking models' : auth.config.mode === 'local' ? 'Tier status unavailable' : 'No models configured'} /></section>
     <div className={styles.configuration}>
       <section className={ui.section}><h2 className={ui.sectionTitle}>Routing policy</h2>{draft && <form onSubmit={(event) => { event.preventDefault(); void saveSettings() }}>
         <fieldset className={styles.formFields} disabled={saving || loading}>

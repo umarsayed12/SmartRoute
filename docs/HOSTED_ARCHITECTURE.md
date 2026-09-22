@@ -4,6 +4,12 @@
 Approved on 2026-09-22. This document supersedes the original single-workspace
 deployment assumptions. The original Phases 1-11 remain a working local prototype.
 
+**Current checkpoint: M2 authenticated preview.** M1's Neon schema is applied.
+Managed sign-in, owner workspaces, gateway keys, scoped history/settings/stats,
+and workspace-specific training are implemented in a separate preview app.
+Model configuration and inference remain blocked until M3. Public hosted mode
+remains blocked until the deployment gates are complete.
+
 ## Product Contract
 
 SmartRoute supplies routing, tracking, and a management UI. Users supply model
@@ -130,7 +136,10 @@ to the existing ignored backend environment file without replacing existing valu
 - `DATABASE_DIRECT_URL`: direct migration connection for the same branch/database.
 - `NEON_AUTH_BASE_URL`: public Auth Base URL from that branch's Auth configuration.
 - `PROVIDER_ENCRYPTION_KEY`: server-only encryption key, generated locally below.
-- `APP_MODE=local`: retain the prototype while hosted cutover is incomplete.
+- `NEON_AUTH_ISSUER` / `NEON_AUTH_AUDIENCE`: exact expected signed claims. The
+  configured service was verified to use its HTTPS origin, without `/database/auth`.
+- `NEON_AUTH_ALGORITHM=EdDSA`: confirmed against the branch's public JWKS.
+- `APP_MODE=local`: retain the prototype; use `preview` only for loopback testing.
 
 Never paste connection strings, passwords, bearer tokens, or encryption keys into
 assistant chat. Never put database credentials or the encryption key in `VITE_*`
@@ -180,6 +189,74 @@ identity; provision one private workspace; create/list/revoke scoped SDK keys;
 introduce workspace-required repositories and migrate history, feedback, settings,
 stats, run history, and training access. Prove cross-user denial, expired/revoked
 credential denial, and safe authorization on every route before any hosted access.
+
+The preview mounts a separate authenticated router, never the legacy global
+SQLite endpoints. It verifies access JWTs using the configured auth URL's
+`/.well-known/jwks.json` endpoint and pinned issuer/audience/algorithm. It requires
+expiry, issued-at time, and a subject, refreshes signing keys on a bounded schedule,
+and ignores token-supplied key URLs. Passwords remain entirely with managed auth.
+
+The installed Neon vanilla adapter puts the JWT in `getSession().data.session.token`.
+This is the adapter's managed JWT field, not a generic Better Auth opaque cookie.
+The frontend forwards it only as a bearer header. It does not authorize from decoded
+claims. A missing session or changed subject clears workspace UI state; signing out
+unmounts private views and one-time key displays. A captured JWT can remain valid
+until its expiry even after browser sign-out. Short token lifetimes and provider
+session-revocation behavior must be reviewed before public deployment.
+
+The backend resolves the current profile and email-verification flag from the
+managed `neon_auth.user` record, then provisions one workspace for that verified
+issuer/subject. It never links accounts by an unverified email address. Verification
+is required before creating a durable gateway key. Keys expire in 1-365 days, are
+limited to 25 active keys per workspace, and can be revoked immediately.
+
+Gateway keys can read their workspace data and submit owned feedback; they cannot
+create/list/revoke keys, change settings, or trigger training. Owner-session routes
+enforce workspace ownership even when a caller guesses another workspace's IDs.
+The trainer reads and writes only that workspace's rows/artifact, not global files.
+
+#### Run The Preview
+
+Use `http://localhost:5174` for the frontend. Neon pre-approves localhost ports;
+`127.0.0.1` is a separate origin and must be explicitly trusted. Add production
+origins in Neon Auth's Configuration -> Domains with protocol and no trailing slash.
+Do not disable callback validation to work around a configuration mismatch.
+
+After confirming that your branch uses origin-based issuer/audience claims:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m app.hosted.setup configure-origin-claims
+$env:APP_MODE = "preview"
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --no-proxy-headers
+```
+
+In a separate terminal from the repository root:
+
+```powershell
+$env:SMARTROUTE_BACKEND_URL = "http://127.0.0.1:8001"
+npm.cmd --prefix frontend run dev -- --host 127.0.0.1 --port 5174
+```
+
+These process-local variables leave the normal local server unchanged. The auth
+URL comes from a public `/v1/client-config` bootstrap; no database credential or
+server encryption key is returned to the browser. Keep `--no-proxy-headers` for
+preview testing. The loopback check is not a public reverse-proxy security boundary:
+do not put a public proxy in front of this preview.
+
+| Preview endpoint | Access |
+| --- | --- |
+| `/v1/client-config`, `/health` readiness | Public, non-secret configuration/readiness |
+| `GET /v1/me` | Verified session or valid gateway key |
+| `GET/POST/DELETE /v1/api-keys` | Owner session; email verification additionally required to create |
+| Requests, stats, tiers, settings reads, feedback, run history, training status | Authenticated workspace only |
+| Settings writes and training | Owner session only |
+| Chat and Test Lab execution | Authenticated, but return setup-required until M3 |
+
+The SDK is still unpublished. The API Keys page deliberately does not present a
+working installation command. Provider configuration and full integration guidance
+remain M3/M4 work. Recovery/signup screens call managed APIs; real email delivery
+and recovery links must be verified in the configured Neon project before deployment.
 
 ### M3: Bring Your Own Models
 

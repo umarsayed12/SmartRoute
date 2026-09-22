@@ -2,8 +2,14 @@
 import type {
   ChatCompletion, ChatMessage, Feedback, Health, Page, RequestDetail,
   RequestFilters, RequestSummary, RunMode, RuntimeSettings, Stats, Suite,
-  TestLabResult, TestLabRun, Tier, TrainingResult, TrainingStatus,
+  TestLabResult, TestLabRun, Tier, TrainingResult, TrainingStatus, ClientConfig, WorkspaceAccount, GatewayKey,
 } from './types'
+
+let tokenProvider: (() => Promise<string | null>) | null = null
+
+export function setTokenProvider(provider: (() => Promise<string | null>) | null) {
+  tokenProvider = provider
+}
 
 export class ApiError extends Error {
   readonly status: number
@@ -32,6 +38,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
   headers.set('Accept', 'application/json')
   headers.set('X-SmartRoute-Source', 'playground')
+  if (tokenProvider && path !== '/v1/client-config') {
+    const token = await tokenProvider()
+    if (!token) throw new ApiError('Sign in to access your workspace.', 401)
+    headers.set('Authorization', `Bearer ${token}`)
+  }
   if (options.body) headers.set('Content-Type', 'application/json')
   let response: Response
   try {
@@ -40,6 +51,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (options.signal?.aborted) throw error
     throw new ApiError('Cannot reach the gateway. Check the backend connection.', 0)
   }
+  if (response.status === 204) return undefined as T
   let payload: unknown
   try {
     payload = await response.json()
@@ -59,6 +71,11 @@ function query(values: Record<string, string | number | boolean | undefined>): s
 }
 
 export const api = {
+  clientConfig: (signal?: AbortSignal) => request<ClientConfig>('/v1/client-config', { signal }),
+  me: (signal?: AbortSignal) => request<WorkspaceAccount>('/v1/me', { signal }),
+  keys: (signal?: AbortSignal) => request<GatewayKey[]>('/v1/api-keys', { signal }),
+  createKey: (name: string, expiresInDays: number, signal?: AbortSignal) => request<GatewayKey & { key: string }>('/v1/api-keys', { method: 'POST', signal, body: JSON.stringify({ name, expires_in_days: expiresInDays }) }),
+  revokeKey: (id: string, signal?: AbortSignal) => request<void>(`/v1/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE', signal }),
   health: (signal?: AbortSignal) => request<Health>('/health', { signal }),
   tiers: (signal?: AbortSignal) => request<Tier[]>('/v1/tiers', { signal }),
   chat: (messages: ChatMessage[], mode: RunMode, signal?: AbortSignal) => (

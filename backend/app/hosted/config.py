@@ -1,6 +1,7 @@
 """Load private hosted configuration and build redacted PostgreSQL connections."""
 
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import SecretStr
@@ -22,6 +23,9 @@ class HostedSettings(BaseSettings):
     DATABASE_URL: SecretStr = SecretStr("")
     DATABASE_DIRECT_URL: SecretStr = SecretStr("")
     NEON_AUTH_BASE_URL: str = ""
+    NEON_AUTH_ISSUER: str = ""
+    NEON_AUTH_AUDIENCE: str = ""
+    NEON_AUTH_ALGORITHM: Literal["EdDSA", "RS256", "ES256"] = "EdDSA"
     PROVIDER_ENCRYPTION_KEY: SecretStr = SecretStr("")
 
 

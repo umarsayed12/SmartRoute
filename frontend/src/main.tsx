@@ -4,10 +4,10 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import '@fontsource-variable/manrope'
 import '@fontsource-variable/jetbrains-mono'
-import App from './App.tsx'
+import AuthGate from './components/AuthGate'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter><App /></BrowserRouter>
+    <BrowserRouter><AuthGate /></BrowserRouter>
   </StrictMode>,
 )

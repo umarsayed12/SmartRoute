@@ -1,11 +1,12 @@
 <!-- Setup and behavior notes for the SmartRoute frontend workspace. -->
 # SmartRoute Frontend
 
-**Hosted migration:** the existing screens remain the local prototype. Managed
-login, private workspace onboarding, saved provider-model configuration, and an
-Integration page are upcoming checkpoints in the
-[hosted architecture plan](../docs/HOSTED_ARCHITECTURE.md). The current UI is not
-an authenticated multi-user deployment.
+**Hosted migration:** the UI detects the backend mode through `/v1/client-config`.
+The default backend retains the local prototype. An authenticated preview adds
+managed login/signup/recovery, a private workspace, sign-out, and API-key creation
+and revocation. Saved provider-model setup and the SDK remain upcoming checkpoints
+in the [hosted architecture plan](../docs/HOSTED_ARCHITECTURE.md). Neither development
+mode is a public-production deployment.
 
 React 18, TypeScript, Vite, and CSS Modules. Phase 11 provides the Playground,
 Dashboard, Requests explorer, Test Lab, and Settings using real gateway APIs.
@@ -29,6 +30,24 @@ Open the URL printed by Vite, normally <http://127.0.0.1:5173>.
 Vite proxies `/v1` and `/health` to the local backend. No browser API key is
 needed. Never place provider secrets in frontend environment variables or code.
 Commands use `npm.cmd` to avoid PowerShell execution-policy restrictions.
+
+For the authenticated preview, run the backend on port 8001 using the architecture
+guide, then set `$env:SMARTROUTE_BACKEND_URL="http://127.0.0.1:8001"` before starting
+Vite on port 5174. Open `http://localhost:5174`, which matches Neon's pre-approved
+localhost origin behavior. Provider secrets and database URLs never enter frontend
+configuration. The pinned `@neondatabase/auth` headless adapter is used without
+importing its optional UI framework. Upstream UI dependencies currently have
+conflicting peer requirements, so the project-local `.npmrc` uses
+`legacy-peer-deps=true` for consistent install/CI behavior. Do not remove that flag
+without regenerating and validating the lockfile. The headless runtime, application
+build, and lint are independently checked; revisit the workaround when the SDK
+dependency graph is corrected upstream.
+
+API key plaintext is shown once in a masked field and discarded on dismissal or
+navigation. It is not written to application localStorage. Session tokens are
+managed by Neon's SDK and forwarded in authorization headers. Never put actual
+credentials into screenshots or bug reports. Browser auth tests use synthetic
+credentials; real verification requires entering credentials directly in the browser.
 
 ## Playground
 

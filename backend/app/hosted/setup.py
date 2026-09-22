@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet
 from dotenv import set_key
@@ -38,6 +39,15 @@ def generate_encryption_key(configured: HostedSettings, env_path: Path) -> bool:
     return True
 
 
+def configure_origin_claims(configured: HostedSettings, env_path: Path) -> None:
+    """Pin explicitly confirmed origin-based JWT claims without replacing configured overrides."""
+    parsed = urlsplit(auth_base_url(configured))
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    for name in ("NEON_AUTH_ISSUER", "NEON_AUTH_AUDIENCE"):
+        if not getattr(configured, name):
+            set_key(str(env_path), name, origin)
+
+
 def check_database(configured: HostedSettings) -> dict[str, bool]:
     """Verify both database URLs and Auth schema presence without modifying cloud data."""
     auth_base_url(configured)
@@ -61,12 +71,15 @@ def check_database(configured: HostedSettings) -> dict[str, bool]:
 def main(argv: list[str] | None = None) -> None:
     """Run secret-safe setup commands; never print connection strings or exception details."""
     parser = argparse.ArgumentParser(description="Configure the SmartRoute hosted foundation.")
-    parser.add_argument("action", choices=["check", "generate-key", "derive-direct-url"])
+    parser.add_argument("action", choices=["check", "generate-key", "derive-direct-url", "configure-origin-claims"])
     args = parser.parse_args(argv)
     try:
         configured = HostedSettings()
         env_path = Path(__file__).resolve().parents[2] / ".env"
-        if args.action == "generate-key":
+        if args.action == "configure-origin-claims":
+            configure_origin_claims(configured, env_path)
+            print(json.dumps({"expected_claims_configured": True}))
+        elif args.action == "generate-key":
             created = generate_encryption_key(configured, env_path)
             print(json.dumps({"encryption_key_ready": True, "generated": created}))
         elif args.action == "derive-direct-url":

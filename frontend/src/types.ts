@@ -4,6 +4,28 @@ export type RoutingMode = 'heuristic' | 'learned' | 'forced'
 export type RunMode = 'auto' | TierName
 export type PlaygroundMode = RunMode | 'compare'
 
+export interface ClientConfig {
+  mode: 'local' | 'preview'
+  auth_url: string | null
+  inference_enabled: boolean
+}
+
+export interface WorkspaceAccount {
+  workspace: { id: string; name: string; plan: string }
+  user: { id: string; email: string; display_name: string; email_verified: boolean } | null
+  auth_type: 'session' | 'api_key'
+}
+
+export interface GatewayKey {
+  id: string
+  name: string
+  key_prefix: string
+  created_at: string
+  last_used_at?: string | null
+  expires_at: string | null
+  revoked_at?: string | null
+}
+
 export interface PlaygroundAnswer {
   mode: RunMode
   state: 'queued' | 'loading' | 'done' | 'error' | 'cancelled'

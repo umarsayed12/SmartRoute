@@ -1,0 +1,9 @@
+/* Workspace key controls with a short-lived, masked secret display. */
+.identity { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.plan { color: var(--accent); border: 1px solid var(--border); border-radius: 4px; padding: 5px 9px; font: 10px var(--mono); text-transform: capitalize; }
+.verification { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 16px 0; color: var(--medium); font-size: 12px; }
+.form { display: grid; grid-template-columns: minmax(160px, 1fr) 150px auto; align-items: end; gap: 12px; max-width: 680px; }
+.secret { display: grid; gap: 14px; padding: 20px; border: 1px solid var(--accent); border-radius: 7px; margin-top: 20px; max-width: 680px; background: #182720; font-size: 12px; }
+.secretControls { display: flex; gap: 8px; }
+.secretControls input { flex: 1; width: 0; padding: 8px; color: var(--text); background: var(--canvas); border: 1px solid var(--border); border-radius: 4px; font: 12px var(--mono); }
+@media (max-width: 620px) { .form { grid-template-columns: 1fr; } }

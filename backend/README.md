@@ -3,10 +3,12 @@
 
 **Hosted migration:** [the active architecture](../docs/HOSTED_ARCHITECTURE.md)
 now targets Neon Postgres, managed authentication, private workspaces, and user-owned
-OpenAI/Anthropic models. The M1 schema and setup tooling are present, but the HTTP
-routes documented below still use the local SQLite implementation. `APP_MODE=hosted`
-is intentionally blocked until the migration is complete. Do not deploy the current
-unauthenticated API publicly. Existing local data is not automatically imported.
+OpenAI/Anthropic models. `APP_MODE=preview` now mounts authenticated, workspace-scoped
+Neon routes; the default local routes documented below retain SQLite. The preview
+includes key lifecycle, private data reads/feedback/settings, and per-workspace
+training, but blocks inference pending M3. `APP_MODE=hosted` remains intentionally
+blocked. Follow the architecture's preview commands, and do not expose either
+development mode publicly. Existing local data is not automatically imported.
 
 FastAPI foundation with environment-driven model tiers and async Ollama and
 OpenAI-compatible providers. Phase 9 adds a repeatable Test Lab and benchmark

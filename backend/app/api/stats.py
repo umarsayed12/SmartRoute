@@ -35,6 +35,12 @@ def get_stats(days: Annotated[int, Query(ge=1, le=365)] = 7) -> dict[str, Any]:
     start_date = now.date() - timedelta(days=days - 1)
     start = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
     rows = db.rows_for_stats(start.isoformat(), now.isoformat())
+    return summarize_stats(rows, days, now)
+
+
+def summarize_stats(rows: list[dict[str, Any]], days: int, now: datetime) -> dict[str, Any]:
+    """Calculate dashboard values from an already scoped set of UTC request records."""
+    start_date = now.date() - timedelta(days=days - 1)
     by_tier: dict[str, list[dict[str, Any]]] = {tier: [] for tier in ("small", "medium", "large")}
     by_day = {start_date + timedelta(days=offset): [] for offset in range(days)}
     modes = {"heuristic": 0, "learned": 0, "forced": 0}
