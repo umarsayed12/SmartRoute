@@ -4,8 +4,9 @@
 **Hosted migration:** the UI detects the backend mode through `/v1/client-config`.
 The default backend retains the local prototype. An authenticated preview adds
 managed login/signup/recovery, a private workspace, sign-out, and API-key creation
-and revocation. Saved provider-model setup and the SDK remain upcoming checkpoints
-in the [hosted architecture plan](../docs/HOSTED_ARCHITECTURE.md). Neither development
+and revocation, encrypted provider credentials, and owned model configuration/routing.
+The SDK/integration flow and deployment remain upcoming checkpoints in the
+[hosted architecture plan](../docs/HOSTED_ARCHITECTURE.md). Neither development
 mode is a public-production deployment.
 
 React 18, TypeScript, Vite, and CSS Modules. Phase 11 provides the Playground,
@@ -56,6 +57,26 @@ successful verification; key creation remains disabled until that profile confir
 the email is verified. Codes stay in component memory and are cleared on success.
 Do not paste verification codes into assistant chat or issue reports.
 
+## Workspace Models
+
+In authenticated preview, verified owners use **Models** to save an official
+OpenAI or Anthropic credential, then assign a model to small, medium, or large.
+Input/output prices are required in USD per 1,000 tokens, including an explicit
+zero when appropriate. These are estimates, not live provider price discovery.
+Disable **Send temperature** for models that reject it; Anthropic values above
+1 are capped at 1. The self-check budget defaults to 256 tokens and is configurable
+from 32 to 1024. Higher budgets can incur additional provider charges.
+
+Keys stay masked while being entered, clear after saving, and are never fetched
+back. Lists show only metadata and suffixes. Rotation preserves tier references;
+confirmed credential deletion also removes its tiers. Tiers can be edited,
+disabled, or removed independently. Historical requests are preserved.
+
+Hosted forced routing to a missing/disabled tier returns a setup error, never
+a medium or shared-model fallback. Auto resolves only among enabled owned tiers.
+Availability refreshes every 30 seconds or with the sidebar refresh control.
+Gateway keys can call those models but cannot manage their credentials/configuration.
+
 ## Playground
 
 - Auto, forced small/medium/large, and Compare all modes use the real gateway.
@@ -64,8 +85,8 @@ Do not paste verification codes into assistant chat or issue reports.
   total routing latency, token counts, actual/reference costs, and routing reason.
 - Compare all sends the same conversation to each forced tier sequentially.
   Choose one successful answer before sending a follow-up; other answers are
-  not silently merged into the conversation. If large is disabled, the actual
-  medium fallback is shown instead of claiming a large-model result.
+  not silently merged into the conversation. In local mode, disabled large uses
+  the actual medium fallback. In preview, unconfigured forced tiers return errors.
 - Positive feedback is submitted immediately. Negative feedback offers an
   optional note; both rating controls lock after successful submission.
   Failed feedback stays retryable and shows the backend error.
@@ -96,6 +117,11 @@ are hypothetical configured premium costs; local Ollama usage is free.
   Open a prompt to inspect its full conversation, answer, feature JSON, routing
   reason, token counts, and costs. The native modal drawer closes with Escape
   or its close control and supports replacing historical feedback with a note.
+  Preview records also show completed/failed status and each provider attempt,
+  including self-checks, safe error codes, raw reported usage, and estimated cost.
+  Missing usage/cost is shown as Unknown; failed requests have no savings or
+  feedback controls. Dashboard aggregates cover completed requests only, not
+  total provider invoice spend. Standard-rate estimates do not apply cache discounts.
 - Test Lab selects a suite, mode, and prefix limit. Runs show a spinner rather
   than fabricated per-prompt progress. Auto-vs-Large comparisons run sequentially,
   retain completed results if the other mode fails, and show separate summaries
@@ -137,4 +163,7 @@ Mocked browser responses are used for deterministic writes and failure cases so
 test ratings and settings do not alter real backend data.
 
 Production serving must route SPA URLs to `index.html` and proxy API traffic to
-the backend. Production hosting and Docker configuration belong to Phase 13.
+the backend. Public hosting configuration and security gates belong to M5. M3
+browser checks use synthetic auth/provider responses, including credential
+rotation/deletion, explicit model prices, verification gating, mobile layout,
+and failed-attempt details. No live paid OpenAI/Anthropic call was used for this checkpoint.

@@ -1,33 +1,24 @@
 """Prove workspace isolation and gateway-key lifecycle using an isolated SQL database."""
 
-from collections.abc import AsyncIterator, Iterator
+import asyncio
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import pytest
 import pytest_asyncio
 import httpx
+from cryptography.fernet import Fernet
 from unittest.mock import AsyncMock, Mock
-from sqlalchemy import create_engine, insert, select, update
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import insert, select, update
 
 from app.config import RuntimeSettings
-from app.hosted import schema
+from app.hosted import providers, schema
 from app.hosted.identity import Identity
 from app.hosted.identity import InvalidIdentityError, NeonTokenVerifier
 from app.hosted.config import HostedSettings
 from app.hosted.main import create_preview_app
 from app.hosted.store import Principal, WorkspaceStore
-
-
-@pytest.fixture
-def store() -> Iterator[WorkspaceStore]:
-    """Create the hosted schema in a shared in-memory SQLite connection for tests only."""
-    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}, execution_options={"schema_translate_map": {schema.SCHEMA: None}})
-    with engine.begin() as connection:
-        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
-        schema.metadata.create_all(connection)
-    yield WorkspaceStore(engine)
-    engine.dispose()
 
 
 def _identity(subject: str, verified: bool = True) -> Identity:
@@ -157,7 +148,7 @@ async def preview_client(store: WorkspaceStore) -> AsyncIterator[httpx.AsyncClie
     verifier = Mock(spec=NeonTokenVerifier)
     verifier.verify = AsyncMock(side_effect=verify)
     application = create_preview_app(
-        HostedSettings(_env_file=None, NEON_AUTH_BASE_URL="https://auth.example.test/db/auth"),
+        HostedSettings(_env_file=None, NEON_AUTH_BASE_URL="https://auth.example.test/db/auth", PROVIDER_ENCRYPTION_KEY=Fernet.generate_key().decode("ascii")),
         store=store, verifier=verifier, profile_resolver=lambda identity: identity,
     )
     async with application.router.lifespan_context(application):
@@ -233,15 +224,15 @@ async def test_unverified_and_invalid_sessions(preview_client: httpx.AsyncClient
 
 @pytest.mark.asyncio
 async def test_preview_has_no_local_inference_fallback(preview_client: httpx.AsyncClient) -> None:
-    """Authenticated preview never calls shared local providers while M3 is incomplete."""
+    """Authenticated preview never calls shared local providers when owned models are absent."""
     headers = {"Authorization": "Bearer browser-first"}
-    for path in ("/v1/chat/completions", "/v1/testlab/run"):
-        response = await preview_client.post(path, headers=headers, json={})
-        assert response.status_code == 409 and "M3" in response.json()["detail"]
+    for path, body in (("/v1/chat/completions", {"model": "smartroute/auto", "messages": [{"role": "user", "content": "Hi"}]}), ("/v1/testlab/run", {"limit": 1})):
+        response = await preview_client.post(path, headers=headers, json=body)
+        assert response.status_code == 409 and "workspace model" in response.json()["detail"]
     tiers = await preview_client.get("/v1/tiers", headers=headers)
     assert tiers.json() == []
     config = await preview_client.get("/v1/client-config")
-    assert config.json()["mode"] == "preview" and config.json()["inference_enabled"] is False
+    assert config.json()["mode"] == "preview" and config.json()["inference_enabled"] is True
 
 
 @pytest.mark.asyncio
@@ -252,3 +243,123 @@ async def test_preview_rejects_non_loopback_clients(store: WorkspaceStore) -> No
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=application, client=("192.0.2.10", 1234)), base_url="http://test") as client:
             response = await client.get("/v1/client-config", headers={"X-Forwarded-For": "127.0.0.1"})
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_owned_model_configuration_and_key_rotation(preview_client: httpx.AsyncClient, store: WorkspaceStore) -> None:
+    """Store encrypted credentials, enforce model ownership, and never expose secret fields."""
+    first = {"Authorization": "Bearer browser-first"}
+    second = {"Authorization": "Bearer browser-second"}
+    created = await preview_client.post("/v1/credentials", headers=first, json={
+        "provider": "openai", "label": "Primary", "api_key": "synthetic-provider-key",
+    })
+    assert created.status_code == 201
+    credential_id = created.json()["id"]
+    assert "synthetic-provider-key" not in created.text
+    model = {"credential_id": credential_id, "model": "test-model", "input_price_per_1k": "0.001", "output_price_per_1k": "0.002"}
+    denied = await preview_client.put("/v1/models/small", headers=second, json=model)
+    assert denied.status_code == 404
+    configured = await preview_client.put("/v1/models/small", headers=first, json=model)
+    assert configured.status_code == 200
+    assert (await preview_client.get("/v1/models", headers=second)).json() == []
+    assert len((await preview_client.get("/v1/models", headers=first)).json()) == 1
+    listed = await preview_client.get("/v1/credentials", headers=first)
+    assert "ciphertext" not in listed.text and "synthetic-provider-key" not in listed.text
+    with store.engine.connect() as connection:
+        ciphertext = connection.execute(select(schema.provider_credentials.c.ciphertext)).scalar_one()
+        assert b"synthetic-provider-key" not in ciphertext
+    rotated = await preview_client.put(f"/v1/credentials/{credential_id}", headers=first, json={"api_key": "rotated-provider-secret"})
+    assert rotated.status_code == 200 and "rotated-provider-secret" not in rotated.text
+    assert (await preview_client.delete(f"/v1/credentials/{credential_id}", headers=second)).status_code == 404
+    assert (await preview_client.delete(f"/v1/credentials/{credential_id}", headers=first)).status_code == 204
+    assert (await preview_client.get("/v1/models", headers=first)).json() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [
+    {"provider": "custom", "label": "Test", "api_key": "secret-value"},
+    {"provider": "openai", "label": "Test", "api_key": "bad\nsecret"},
+    {"provider": "openai", "label": "Test", "api_key": "secret-value", "base_url": "http://127.0.0.1"},
+])
+async def test_credential_validation_redacts_input(preview_client: httpx.AsyncClient, payload: dict) -> None:
+    """Reject unsupported providers/URLs and invalid secrets without echoing request values."""
+    response = await preview_client.post("/v1/credentials", headers={"Authorization": "Bearer browser-first"}, json=payload)
+    assert response.status_code == 422
+    assert "secret" not in response.text and "base_url" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_model_setup_requires_verified_owner(preview_client: httpx.AsyncClient) -> None:
+    """Unverified sessions and ordinary SDK keys cannot store or rotate provider credentials."""
+    payload = {"provider": "openai", "label": "Test", "api_key": "synthetic-provider-key"}
+    assert (await preview_client.post("/v1/credentials", headers={"Authorization": "Bearer browser-unverified"}, json=payload)).status_code == 403
+    key = await preview_client.post("/v1/api-keys", headers={"Authorization": "Bearer browser-first"}, json={"name": "SDK"})
+    assert (await preview_client.post("/v1/credentials", headers={"Authorization": f"Bearer {key.json()['key']}"}, json=payload)).status_code == 403
+
+
+async def _configure_http_model(client: httpx.AsyncClient) -> dict[str, str]:
+    """Set up an owned model and return only its synthetic gateway authorization header."""
+    headers = {"Authorization": "Bearer browser-first"}
+    credential = await client.post("/v1/credentials", headers=headers, json={"provider": "openai", "label": "Inference", "api_key": "synthetic-provider-key"})
+    assert credential.status_code == 201
+    model = await client.put("/v1/models/small", headers=headers, json={
+        "credential_id": credential.json()["id"], "model": "test-model",
+        "input_price_per_1k": 1, "output_price_per_1k": 2,
+    })
+    assert model.status_code == 200
+    key = await client.post("/v1/api-keys", headers=headers, json={"name": "Inference client"})
+    assert key.status_code == 201
+    return {"Authorization": f"Bearer {key.json()['key']}"}
+
+
+@pytest.mark.asyncio
+async def test_gateway_key_chat_and_testlab_are_scoped(
+    preview_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real authenticated HTTP flow uses owned models and persists private attempts and run history."""
+    headers = await _configure_http_model(preview_client)
+    provider = AsyncMock(return_value=providers.Completion("Useful answer.", 10, 4, 5, "test-model", "stop", {"prompt_tokens": 10, "completion_tokens": 4}))
+    monkeypatch.setattr(providers, "chat", provider)
+    response = await preview_client.post("/v1/chat/completions", headers={**headers, "X-SmartRoute-Source": "sdk"}, json={
+        "model": "smartroute/auto", "messages": [{"role": "user", "content": "Hello"}],
+    })
+    assert response.status_code == 200
+    assert response.json()["model"] == "test-model"
+    assert response.json()["smartroute"]["actual_cost_usd"] == pytest.approx(0.018)
+    detail = await preview_client.get(f"/v1/requests/{response.json()['id']}", headers=headers)
+    assert detail.json()["source"] == "sdk" and len(detail.json()["attempts"]) == 1
+    assert "synthetic-provider-key" not in detail.text
+    assert provider.await_args.args[3] == "synthetic-provider-key"
+    other = {"Authorization": "Bearer browser-second"}
+    assert (await preview_client.get(f"/v1/requests/{response.json()['id']}", headers=other)).status_code == 404
+    run = await preview_client.post("/v1/testlab/run", headers=headers, json={"limit": 2})
+    assert run.status_code == 200 and run.json()["prompt_count"] == 2
+    assert (await preview_client.get("/v1/testlab/runs", headers=headers)).json()["total"] == 1
+    assert (await preview_client.get("/v1/testlab/runs", headers=other)).json()["total"] == 0
+    assert (await preview_client.get("/v1/requests", headers=headers)).json()["total"] == 3
+
+
+@pytest.mark.asyncio
+async def test_workspace_inference_concurrency(
+    preview_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reject a second operation before provider execution and release capacity afterward."""
+    headers = await _configure_http_model(preview_client)
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def answer(*_args: Any, **_kwargs: Any) -> providers.Completion:
+        """Pause one provider call deterministically without sleeps."""
+        entered.set()
+        await release.wait()
+        return providers.Completion("Answer", 10, 2, 5, "test-model", "stop", {})
+    monkeypatch.setattr(providers, "chat", answer)
+    body = {"model": "smartroute/small", "messages": [{"role": "user", "content": "Hello"}]}
+    running = asyncio.create_task(preview_client.post("/v1/chat/completions", headers=headers, json=body))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        overlapping = await preview_client.post("/v1/chat/completions", headers=headers, json=body)
+        assert overlapping.status_code == 429
+    finally:
+        release.set()
+        completed = await asyncio.wait_for(running, timeout=5)
+    assert completed.status_code == 200
+    assert (await preview_client.post("/v1/chat/completions", headers=headers, json=body)).status_code == 200

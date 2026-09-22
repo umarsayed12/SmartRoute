@@ -85,7 +85,7 @@ export interface Health {
 
 export interface Tier {
   name: TierName
-  provider: 'ollama' | 'openai_compatible'
+  provider: 'ollama' | 'openai_compatible' | 'openai' | 'anthropic'
   model: string
   base_url: string
   input_price_per_1k: number
@@ -109,7 +109,7 @@ export interface Page<T> {
   offset: number
 }
 
-export interface RequestSummary extends Omit<RoutingInfo, 'request_id'> {
+export interface RequestSummary extends Omit<RoutingInfo, 'request_id' | 'actual_cost_usd'> {
   id: string
   created_at: string
   prompt_preview: string
@@ -118,13 +118,40 @@ export interface RequestSummary extends Omit<RoutingInfo, 'request_id'> {
   feedback: 1 | -1 | null
   feedback_note: string | null
   source: 'api' | 'playground' | 'testlab' | 'sdk'
+  status?: 'completed' | 'failed'
+  error_code?: string | null
+  actual_cost_usd: number | null
 }
 
 export interface RequestDetail extends RequestSummary {
   prompt_full: string
   answer_full: string
   features_json: string
+  attempts?: { id: string; sequence: number; kind: 'answer' | 'self_check'; status: 'completed' | 'failed'; error_code: string | null; tier: TierName; provider: string; model: string; prompt_tokens: number; completion_tokens: number; latency_ms: number; cost_usd: number | null; usage_details: Record<string, unknown> }[]
 }
+
+export interface ProviderCredential {
+  id: string
+  provider: 'openai' | 'anthropic'
+  label: string
+  key_suffix: string
+  created_at?: string
+}
+
+export interface ConfiguredModel {
+  id: string
+  tier: TierName
+  credential_id: string
+  provider: 'openai' | 'anthropic'
+  model: string
+  input_price_per_1k: number
+  output_price_per_1k: number
+  enabled: boolean
+  send_temperature: boolean
+  self_check_max_tokens: number
+}
+
+export type ModelConfiguration = Omit<ConfiguredModel, 'id' | 'tier' | 'provider'>
 
 export interface RequestFilters {
   limit?: number

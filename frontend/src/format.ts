@@ -1,5 +1,6 @@
 // Format precise gateway costs and timings consistently across frontend views.
-export function formatCost(value: number): string {
+export function formatCost(value: number | null): string {
+  if (value === null) return 'Unknown'
   return value === 0 ? '$0.00' : `$${value.toFixed(6)}`
 }
 

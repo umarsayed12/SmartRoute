@@ -4,11 +4,13 @@
 Approved on 2026-09-22. This document supersedes the original single-workspace
 deployment assumptions. The original Phases 1-11 remain a working local prototype.
 
-**Current checkpoint: M2 authenticated preview.** M1's Neon schema is applied.
-Managed sign-in, owner workspaces, gateway keys, scoped history/settings/stats,
-and workspace-specific training are implemented in a separate preview app.
-Model configuration and inference remain blocked until M3. Public hosted mode
-remains blocked until the deployment gates are complete.
+**Current checkpoint: M3 owned-model preview.** Neon migrations through
+`0002_owned_inference` are applied. Managed sign-in, owner workspaces, gateway keys,
+encrypted provider configuration, owned cloud routing, private attempt history,
+settings/stats, and workspace-specific training run in a separate preview app.
+Provider contracts and failures are tested with mocked HTTP; live paid inference
+has not been verified. M4 SDK/onboarding is next. Public hosted mode remains
+blocked until the M5 deployment gates are complete.
 
 ## Product Contract
 
@@ -24,8 +26,9 @@ is actually published. Do not advertise a package as installable before publicat
 
 The SDK calls the backend, not the browser app. Its API key identifies a workspace.
 Provider configuration can be managed through the website or explicit SDK setup
-methods; routine chat calls reference saved models rather than repeatedly changing
-configuration as an initialization side effect.
+methods with explicit owner authorization; ordinary gateway keys cannot administer
+provider configuration. Routine chat calls reference saved models rather than
+repeatedly changing configuration as an initialization side effect.
 
 ## Target Flow
 
@@ -251,19 +254,75 @@ do not put a public proxy in front of this preview.
 | `GET/POST/DELETE /v1/api-keys` | Owner session; email verification additionally required to create |
 | Requests, stats, tiers, settings reads, feedback, run history, training status | Authenticated workspace only |
 | Settings writes and training | Owner session only |
-| Chat and Test Lab execution | Authenticated, but return setup-required until M3 |
+| Credential metadata/deletion and model deletion | Owner session only |
+| Credential creation/rotation and model configuration | Email-verified owner session only |
+| Model reads, chat and Test Lab execution | Workspace session or gateway key; session inference requires verified email |
 
 The SDK is still unpublished. The API Keys page deliberately does not present a
-working installation command. Provider configuration and full integration guidance
-remain M3/M4 work. Recovery/signup screens call managed APIs; real email delivery
+working installation command. Provider configuration is available in Models;
+full integration guidance remains M4 work. Recovery/signup screens call managed APIs; real email delivery
 and recovery links must be verified in the configured Neon project before deployment.
 
 ### M3: Bring Your Own Models
 
-Add workspace model/credential APIs, OpenAI and native Anthropic providers,
-provider-aware confidence, owned model resolution, and attempt-level metering.
-Reject unconfigured routing and never fall back to a shared owner-funded model.
-Test provider errors, redaction, key replacement, and credential ownership.
+Implemented in authenticated preview. Owners save up to ten encrypted credentials
+and one mapping per logical tier through Models or the owner-authorized APIs.
+Credential reads expose only metadata/suffixes. Rotation keeps mappings; credential
+deletion cascades mappings but preserves history. Model mappings can be updated,
+disabled, or deleted independently. Browser and gateway-key chat use the same
+workspace configuration, never environment-wide/local provider credentials.
+
+Only fixed official OpenAI and Anthropic API roots are supported. No custom URL,
+redirect, automatic retry, or provider discovery can redirect a saved secret.
+Native Anthropic requests separate system messages and normalize text/usage.
+Model availability uses a metadata endpoint, without generating billable tokens;
+availability is not proof that generation options or account permissions will work.
+
+Prices must be supplied explicitly in USD per 1,000 input/output tokens. Missing
+or disabled forced tiers return 409. Auto resolves a predicted tier to the same
+or next higher configured tier, otherwise the highest enabled one, and explains
+the resolution. A missing learned-only classifier returns 503. There is no shared
+model fallback. One configured model permits tracking, not cross-model selection.
+
+Each lower-tier answer uses a same-provider, same-model confidence check. Its
+output cap is independently configurable from 32-1024 tokens (default 256), which
+allows more room than the local prototype's four-token check. Unparseable or
+out-of-range ratings contribute 0.5 and are marked `neutral_fallback` in attempt
+metadata. The highest tier skips the check and reports 1.0 by convention, not a
+correctness probability. A checker transport/provider error fails the request.
+Models may omit temperature entirely; Anthropic temperatures above 1 are capped
+at 1 while OpenAI receives the gateway's 0-2 value.
+
+Successful requests and all answer/self-check attempts are committed atomically
+before returning a completion. `actual_cost_usd` sums their configured standard
+rates. OpenAI cached/reasoning details and Anthropic cache-read/cache-creation
+counts are retained; Anthropic input totals include those cache categories.
+**Cache-specific discounts/premiums are not applied.** These are estimates, not
+invoice-exact amounts. Standard response `usage` describes only the final answer;
+request details expose all auxiliary/escalation usage and pricing markers.
+
+Provider errors/timeouts/cancellation retain failed request and attempt records.
+Unreported costs are `null`, never assumed free; prior known costs remain on their
+individual attempts. Rejections before inference (missing model, invalid input,
+capacity) make no billable call and do not create a request record. Failed requests
+cannot receive feedback and are excluded from dashboard aggregates and training.
+Dashboard spend/savings therefore cover completed requests, not every possible
+provider charge. A browser abort does not guarantee cancellation at the provider;
+server task cancellation is audited but cannot undo an already-billable call.
+
+Preview limits: 128 text messages, 64,000 aggregate characters, 1-4096 answer
+tokens (default 1024), and 120-second read/10-second connect provider timeouts.
+Tools, media, unknown message fields, and streaming are rejected. One operation
+per workspace and four per process bound chat/Test Lab concurrency. Test Lab runs
+sequentially; a failed partial run retains its request attempts but no completed
+run summary. Distributed limits, quotas, total request deadlines, and public abuse
+controls remain M5 work. Do not expose preview through a public reverse proxy.
+
+Validation covers native provider payloads, usage, redacted failures, redirects,
+ownership, key rotation, forced-tier guards, cumulative costs, neutral checks,
+cancellation, concurrent-request denial, SDK-key HTTP inference, and private
+request/run history. Browser checks use synthetic credentials and responses;
+the user elected mocked provider validation for this checkpoint.
 
 ### M4: Onboarding And SDK
 

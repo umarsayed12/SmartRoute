@@ -10,6 +10,7 @@ import httpx
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
@@ -36,10 +37,14 @@ def create_preview_app(
         actual_store = store or WorkspaceStore(database_engine(configuration))
         async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
             application.state.store = actual_store
+            application.state.configuration = configuration
             application.state.verifier = verifier or NeonTokenVerifier(configuration, client)
+            application.state.provider_client = client
             application.state.profile_resolver = profile_resolver or actual_store.neon_profile
             application.state.training_lock = Lock()
             application.state.training_workspaces = set()
+            application.state.inference_lock = Lock()
+            application.state.inference_workspaces = set()
             try:
                 yield
             finally:
@@ -47,6 +52,12 @@ def create_preview_app(
                     actual_store.engine.dispose()
 
     application = FastAPI(title="SmartRoute authenticated preview", version="0.1.0", lifespan=lifespan)
+
+    @application.exception_handler(RequestValidationError)
+    async def invalid_request(_request: Request, _error: RequestValidationError) -> JSONResponse:
+        """Do not echo invalid credential-bearing request bodies in validation errors."""
+        return JSONResponse(status_code=422, content={"detail": "Request contains invalid fields or values."})
+
     application.add_middleware(
         CORSMiddleware, allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:5174"],
         allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type", "X-SmartRoute-Source"],
@@ -71,7 +82,7 @@ def create_preview_app(
     @application.get("/v1/client-config")
     def client_config() -> dict[str, Any]:
         """Expose public auth configuration, never database URLs or service secrets."""
-        return {"mode": "preview", "auth_url": public_auth_url, "inference_enabled": False}
+        return {"mode": "preview", "auth_url": public_auth_url, "inference_enabled": True}
 
     @application.get("/health")
     async def health(request: Request, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]) -> dict[str, Any]:

@@ -7,14 +7,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Engine, Text, cast, func, insert, or_, select, text, update
+from sqlalchemy import Engine, Text, cast, delete, func, insert, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.config import RuntimeSettings
 from app.hosted import schema
 from app.hosted.identity import Identity
-from app.hosted.secrets import hash_api_key, new_api_key
+from app.hosted.config import HostedSettings
+from app.hosted.models import CredentialCreate, ModelConfiguration
+from app.hosted.secrets import decrypt_provider_key, encrypt_provider_key, hash_api_key, new_api_key
 
 
 @dataclass(frozen=True)
@@ -42,7 +44,7 @@ def _request(row: Any, *, detail: bool = False) -> dict[str, Any]:
         created = result["created_at"]
         result["created_at"] = (created.replace(tzinfo=timezone.utc) if created.tzinfo is None else created.astimezone(timezone.utc)).isoformat()
     for name in ("confidence", "actual_cost_usd", "reference_cost_usd"):
-        if name in result:
+        if name in result and result[name] is not None:
             result[name] = float(result[name])
     if detail:
         result["prompt_full"] = json.dumps(result.pop("messages"), ensure_ascii=False)
@@ -221,7 +223,15 @@ class WorkspaceStore:
             row = connection.execute(select(schema.requests).where(
                 schema.requests.c.workspace_id == actor.workspace_id, schema.requests.c.id == request_id,
             )).mappings().first()
-        return _request(row, detail=True) if row else None
+            attempts = connection.execute(select(schema.request_attempts).where(
+                schema.request_attempts.c.workspace_id == actor.workspace_id,
+                schema.request_attempts.c.request_id == request_id,
+            ).order_by(schema.request_attempts.c.sequence)).mappings().all() if row else []
+        if not row:
+            return None
+        result = _request(row, detail=True)
+        result["attempts"] = [{name: float(value) if name == "cost_usd" and value is not None else value for name, value in attempt.items() if name not in ("workspace_id", "request_id")} for attempt in attempts]
+        return result
 
     def set_feedback(self, actor: Principal, request_id: str, score: int, note: str | None) -> bool:
         """Update feedback only when the request belongs to the authenticated workspace."""
@@ -230,6 +240,7 @@ class WorkspaceStore:
         with self.engine.begin() as connection:
             result = connection.execute(update(schema.requests).where(
                 schema.requests.c.workspace_id == actor.workspace_id, schema.requests.c.id == request_id,
+                schema.requests.c.status == "completed",
             ).values(feedback=score, feedback_note=note))
             return result.rowcount > 0
 
@@ -239,6 +250,7 @@ class WorkspaceStore:
         with self.engine.connect() as connection:
             rows = connection.execute(select(*(schema.requests.c[name] for name in names)).where(
                 schema.requests.c.workspace_id == actor.workspace_id,
+                schema.requests.c.status == "completed",
                 schema.requests.c.created_at >= start, schema.requests.c.created_at <= end,
             )).mappings().all()
         return [_request(row) for row in rows]
@@ -248,6 +260,7 @@ class WorkspaceStore:
         with self.engine.connect() as connection:
             rows = connection.execute(select(schema.requests.c.features, schema.requests.c.tier_final, schema.requests.c.feedback).where(
                 schema.requests.c.workspace_id == actor.workspace_id, schema.requests.c.feedback.in_([-1, 1]),
+                schema.requests.c.status == "completed",
             )).mappings().all()
         return [{"features_json": json.dumps(row["features"]), "tier_final": row["tier_final"], "feedback": row["feedback"]} for row in rows]
 
@@ -288,6 +301,110 @@ class WorkspaceStore:
             "output_price_per_1k": float(row["output_price_per_1k"]),
         } for row in rows]
 
+    def credentials(self, actor: Principal) -> list[dict[str, Any]]:
+        """List only non-secret provider-credential metadata for the owner."""
+        if actor.auth_type != "session":
+            raise PermissionError("An owner session is required.")
+        columns = [schema.provider_credentials.c[name] for name in ("id", "provider", "label", "key_suffix", "created_at")]
+        with self.engine.connect() as connection:
+            return [dict(row) for row in connection.execute(select(*columns).where(
+                schema.provider_credentials.c.workspace_id == actor.workspace_id,
+            ).order_by(schema.provider_credentials.c.created_at)).mappings()]
+
+    def create_credential(self, actor: Principal, body: CredentialCreate, configured: HostedSettings) -> dict[str, Any]:
+        """Encrypt a provider key before storing it and return only display metadata."""
+        if actor.auth_type != "session" or not actor.email_verified:
+            raise PermissionError("A verified owner session is required.")
+        credential_id = uuid4()
+        secret = body.api_key.get_secret_value()
+        ciphertext = encrypt_provider_key(configured, actor.workspace_id, body.provider, secret)
+        with self.engine.begin() as connection:
+            connection.execute(select(schema.workspaces.c.id).where(schema.workspaces.c.id == actor.workspace_id).with_for_update()).scalar_one()
+            count = connection.execute(select(func.count()).select_from(schema.provider_credentials).where(
+                schema.provider_credentials.c.workspace_id == actor.workspace_id,
+            )).scalar_one()
+            if count >= 10:
+                raise ValueError("At most 10 provider credentials are allowed per workspace.")
+            connection.execute(insert(schema.provider_credentials).values(
+                id=credential_id, workspace_id=actor.workspace_id, provider=body.provider,
+                label=body.label, ciphertext=ciphertext, key_suffix=secret[-4:],
+            ))
+        return {"id": str(credential_id), "provider": body.provider, "label": body.label, "key_suffix": secret[-4:]}
+
+    def replace_credential(self, actor: Principal, credential_id: UUID, secret: str, configured: HostedSettings) -> bool:
+        """Rotate an owned secret without exposing or changing its provider identity."""
+        if actor.auth_type != "session" or not actor.email_verified:
+            raise PermissionError("A verified owner session is required.")
+        with self.engine.begin() as connection:
+            provider = connection.execute(select(schema.provider_credentials.c.provider).where(
+                schema.provider_credentials.c.workspace_id == actor.workspace_id,
+                schema.provider_credentials.c.id == credential_id,
+            )).scalar_one_or_none()
+            if provider is None:
+                return False
+            connection.execute(update(schema.provider_credentials).where(
+                schema.provider_credentials.c.workspace_id == actor.workspace_id, schema.provider_credentials.c.id == credential_id,
+            ).values(ciphertext=encrypt_provider_key(configured, actor.workspace_id, provider, secret), key_suffix=secret[-4:]))
+        return True
+
+    def delete_credential(self, actor: Principal, credential_id: UUID) -> bool:
+        """Remove one owned credential and its configured models via the schema's cascade."""
+        if actor.auth_type != "session":
+            raise PermissionError("An owner session is required.")
+        with self.engine.begin() as connection:
+            result = connection.execute(delete(schema.provider_credentials).where(
+                schema.provider_credentials.c.workspace_id == actor.workspace_id,
+                schema.provider_credentials.c.id == credential_id,
+            ))
+            return result.rowcount > 0
+
+    def configure_model(self, actor: Principal, tier: str, body: ModelConfiguration) -> dict[str, Any]:
+        """Upsert one tier only when its credential belongs to the same verified owner."""
+        if actor.auth_type != "session" or not actor.email_verified:
+            raise PermissionError("A verified owner session is required.")
+        if tier not in ("small", "medium", "large"):
+            raise ValueError("Invalid model tier.")
+        with self.engine.begin() as connection:
+            owned = connection.execute(select(schema.provider_credentials.c.id).where(
+                schema.provider_credentials.c.workspace_id == actor.workspace_id,
+                schema.provider_credentials.c.id == body.credential_id,
+            )).scalar_one_or_none()
+            if owned is None:
+                raise LookupError("Provider credential not found.")
+            values = body.model_dump()
+            connection.execute(_upsert(connection, schema.models).values(
+                id=uuid4(), workspace_id=actor.workspace_id, tier=tier, **values,
+            ).on_conflict_do_update(index_elements=["workspace_id", "tier"], set_=values))
+        return {"tier": tier, **body.model_dump(mode="json")}
+
+    def delete_model(self, actor: Principal, tier: str) -> bool:
+        """Remove only the selected workspace's tier mapping."""
+        if actor.auth_type != "session":
+            raise PermissionError("An owner session is required.")
+        with self.engine.begin() as connection:
+            return connection.execute(delete(schema.models).where(
+                schema.models.c.workspace_id == actor.workspace_id, schema.models.c.tier == tier,
+            )).rowcount > 0
+
+    def model_rows(self, actor: Principal) -> list[dict[str, Any]]:
+        """Return owned model configuration without ciphertext or plaintext credentials."""
+        with self.engine.connect() as connection:
+            rows = connection.execute(select(schema.models, schema.provider_credentials.c.provider).join(
+                schema.provider_credentials, schema.models.c.credential_id == schema.provider_credentials.c.id,
+            ).where(schema.models.c.workspace_id == actor.workspace_id, schema.provider_credentials.c.workspace_id == actor.workspace_id)).mappings().all()
+        return [{name: value for name, value in row.items() if name != "workspace_id"} for row in rows]
+
+    def provider_key(self, actor: Principal, credential_id: UUID, configured: HostedSettings) -> tuple[str, str]:
+        """Decrypt only an owned credential immediately before a provider operation."""
+        with self.engine.connect() as connection:
+            row = connection.execute(select(schema.provider_credentials.c.provider, schema.provider_credentials.c.ciphertext).where(
+                schema.provider_credentials.c.workspace_id == actor.workspace_id,
+                schema.provider_credentials.c.id == credential_id,
+            )).mappings().first()
+        if row is None:
+            raise LookupError("Provider credential not found.")
+        return row["provider"], decrypt_provider_key(configured, actor.workspace_id, row["provider"], row["ciphertext"])
+
     def save_model(self, actor: Principal, artifact: bytes, metadata: dict[str, Any], feature_order: list[str]) -> None:
         """Persist a server-trained classifier only under the actor's workspace."""
         if actor.auth_type != "session":
@@ -295,3 +412,26 @@ class WorkspaceStore:
         with self.engine.begin() as connection:
             values = {"artifact": artifact, "metadata": metadata, "feature_order": feature_order, "trained_at": datetime.now(timezone.utc)}
             connection.execute(_upsert(connection, schema.router_models).values(workspace_id=actor.workspace_id, **values).on_conflict_do_update(index_elements=["workspace_id"], set_=values))
+
+    def classifier(self, actor: Principal) -> dict[str, Any] | None:
+        """Read only the current workspace's server-generated routing artifact."""
+        with self.engine.connect() as connection:
+            row = connection.execute(select(schema.router_models.c.artifact, schema.router_models.c.feature_order).where(
+                schema.router_models.c.workspace_id == actor.workspace_id,
+            )).mappings().first()
+        return dict(row) if row else None
+
+    def record_inference(self, actor: Principal, row: dict[str, Any], attempts: list[dict[str, Any]]) -> None:
+        """Atomically persist a request and all its attempts with server-supplied tenant identity."""
+        with self.engine.begin() as connection:
+            connection.execute(insert(schema.requests).values(**{**row, "workspace_id": actor.workspace_id, "api_key_id": actor.api_key_id}))
+            if attempts:
+                connection.execute(insert(schema.request_attempts), [
+                    {**attempt, "id": uuid4(), "workspace_id": actor.workspace_id, "request_id": row["id"], "sequence": index + 1}
+                    for index, attempt in enumerate(attempts)
+                ])
+
+    def record_run(self, actor: Principal, values: dict[str, Any]) -> None:
+        """Persist only an authenticated workspace's completed suite summary and results."""
+        with self.engine.begin() as connection:
+            connection.execute(insert(schema.testlab_runs).values(**{**values, "workspace_id": actor.workspace_id}))

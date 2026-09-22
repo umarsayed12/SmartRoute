@@ -5,10 +5,46 @@
 now targets Neon Postgres, managed authentication, private workspaces, and user-owned
 OpenAI/Anthropic models. `APP_MODE=preview` now mounts authenticated, workspace-scoped
 Neon routes; the default local routes documented below retain SQLite. The preview
-includes key lifecycle, private data reads/feedback/settings, and per-workspace
-training, but blocks inference pending M3. `APP_MODE=hosted` remains intentionally
+includes key lifecycle, private data reads/feedback/settings, per-workspace
+training, and M3 owned OpenAI/Anthropic inference. `APP_MODE=hosted` remains intentionally
 blocked. Follow the architecture's preview commands, and do not expose either
 development mode publicly. Existing local data is not automatically imported.
+
+## Authenticated M3 Preview
+
+Apply the versioned migrations through `python -m app.hosted.migrate upgrade`
+before restarting the preview. Revision `0002_owned_inference` adds failed-call
+auditing, nullable unknown costs, and model compatibility options. The
+[architecture guide](../docs/HOSTED_ARCHITECTURE.md#m3-bring-your-own-models)
+documents the complete setup and accounting contract.
+
+- Verified owner sessions create/rotate encrypted provider keys at `/v1/credentials`
+	and configure `/v1/models/{small|medium|large}`. DELETE removes only owned resources;
+	deleting a credential cascades its model mappings, not historical requests.
+- Use official OpenAI or native Anthropic credentials. Roots are fixed; custom
+	URLs and redirects are not accepted. Ordinary gateway keys cannot administer models.
+- Models require explicit standard USD input/output rates per 1,000 tokens.
+	`send_temperature=false` omits temperature for incompatible models; Anthropic
+	temperatures above 1 are capped at 1. `self_check_max_tokens` defaults to 256
+	and accepts 32-1024, independently of the answer limit.
+- Chat accepts text system/user/assistant messages, at least one user message,
+	up to 128 messages and 64,000 aggregate characters, and 1-4096 answer tokens
+	(default 1024). Tools, media, unknown message fields, and streaming are unsupported.
+- No configured model returns 409. Forced tiers must be enabled and configured;
+	auto resolves among owned tiers only. Missing learned-only artifacts return 503.
+- Every answer and self-check attempt is written atomically with its request
+	before a completion is returned. Costs sum all attempts at configured standard
+	rates; raw provider cache/reasoning usage is retained without cache price adjustments.
+- Provider failures return redacted 502/504 errors with a recorded request ID.
+	A failed self-check also fails the request. Unreported charges remain `null`,
+	including cancellation/timeout; inspect known charges on earlier attempts.
+	Failed requests cannot receive feedback and are excluded from statistics/training.
+- One inference operation per workspace and four per process are allowed at once.
+	These are preview concurrency guards, not distributed limits or public abuse controls.
+
+Provider tests use deterministic mocked HTTP. Live OpenAI/Anthropic billing and
+account-specific model permissions have not been verified. The remaining sections
+describe **local-prototype mode**, whose defaults and failure logging differ.
 
 FastAPI foundation with environment-driven model tiers and async Ollama and
 OpenAI-compatible providers. Phase 9 adds a repeatable Test Lab and benchmark

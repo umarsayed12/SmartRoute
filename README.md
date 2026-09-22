@@ -10,11 +10,12 @@ usage, estimated cost, feedback, and routing decisions for that workspace.
 **Status: hosted migration in progress.** The completed local prototype includes
 the Playground, Dashboard, Requests, Test Lab, and Settings. An authenticated
 loopback preview now supports Neon login, private workspaces, gateway-key management,
-and tenant-scoped data access. Hosted model onboarding and the published SDK are
-not complete yet.
+encrypted OpenAI/Anthropic credentials, owned model routing, and private attempt-level
+history. M3 is implemented; the M4 SDK/integration flow and M5 public deployment
+remain pending. Provider protocol tests use mocked HTTP, not live paid inference.
 
 The default local HTTP app is still unauthenticated and must remain local-only.
-Use the documented authenticated preview to test M2. Public hosted startup
+Use the documented authenticated preview to test M3. Public hosted startup
 is deliberately blocked until the migration's security gates are met. SmartRoute
 will initially be free; users remain responsible for their provider's model charges.
 
@@ -25,14 +26,30 @@ will initially be free; users remain responsible for their provider's model char
 - [Backend development instructions](backend/README.md)
 - [Frontend development instructions](frontend/README.md)
 
-Neon managed authentication owns passwords and sessions. Neon Postgres will hold
+Neon managed authentication owns passwords and sessions. Neon Postgres holds
 workspace profiles, hashed gateway keys, encrypted provider credentials, model
 configurations, request history, and training artifacts. The browser and SDK call
 the same authenticated backend; neither receives the database connection string.
 
 No automatic migration of existing local request history is performed. Provider
-credentials and Neon connection strings stay in ignored local environment files
-or deployment secret storage, never in Git or browser configuration.
+credentials are encrypted in Neon; the encryption key and database connection
+strings stay in ignored local environment files or deployment secret storage,
+never in Git or browser configuration. Provider keys entered in the Models form
+are cleared after saving and cannot be read back through the API.
+
+## Owned Model Preview
+
+After signing in and verifying your email, open **Models**, save an official
+OpenAI or Anthropic credential, and configure at least one enabled tier with
+explicit USD input/output prices per 1,000 tokens. No shared models or private
+custom endpoints are used. Ordinary gateway keys can use configured models but
+cannot change provider credentials or model configuration.
+
+Every answer and confidence call contributes to estimated cost. Reported cache
+and reasoning usage is retained, but cache-specific prices are not applied yet.
+Failed calls with unreported usage have unknown cost, not zero; dashboard savings
+cover completed requests only and are not a provider invoice. See the
+[routing and accounting details](docs/HOSTED_ARCHITECTURE.md#m3-bring-your-own-models).
 
 ## Planned Structure
 

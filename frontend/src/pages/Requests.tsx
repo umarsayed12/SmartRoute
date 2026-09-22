@@ -52,6 +52,7 @@ export default function Requests() {
     { id: 'prompt', label: 'Prompt', render: (row) => <button type="button" className={styles.prompt} title={row.prompt_preview} aria-label={`Open request ${row.id}`} onClick={() => setSelected(row.id)}>{row.prompt_preview || '(Empty prompt)'}</button> },
     { id: 'created', label: 'Created', render: (row) => <span className={ui.muted} title={row.created_at}>{new Date(row.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span> },
     { id: 'tier', label: 'Final tier', render: (row) => <TierBadge tier={row.tier_final} /> },
+    { id: 'status', label: 'Status', render: (row) => <span className={row.status === 'failed' ? ui.bad : ui.muted}>{row.status === 'failed' ? 'Failed' : 'Completed'}</span> },
     { id: 'escalated', label: 'Escalated', render: (row) => <span className={row.escalated ? styles.escalated : ui.muted}>{row.escalated ? 'Yes' : 'No'}</span> },
     { id: 'source', label: 'Source', render: (row) => <span className={ui.muted}>{row.source}</span> },
     { id: 'latency', label: 'Latency', render: (row) => <span className={ui.mono}>{formatLatency(row.latency_ms)}</span> },

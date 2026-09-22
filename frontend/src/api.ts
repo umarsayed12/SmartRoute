@@ -2,7 +2,7 @@
 import type {
   ChatCompletion, ChatMessage, Feedback, Health, Page, RequestDetail,
   RequestFilters, RequestSummary, RunMode, RuntimeSettings, Stats, Suite,
-  TestLabResult, TestLabRun, Tier, TrainingResult, TrainingStatus, ClientConfig, WorkspaceAccount, GatewayKey,
+  TestLabResult, TestLabRun, Tier, TrainingResult, TrainingStatus, ClientConfig, WorkspaceAccount, GatewayKey, ProviderCredential, ConfiguredModel, ModelConfiguration, TierName,
 } from './types'
 
 let tokenProvider: (() => Promise<string | null>) | null = null
@@ -71,6 +71,13 @@ function query(values: Record<string, string | number | boolean | undefined>): s
 }
 
 export const api = {
+  credentials: (signal?: AbortSignal) => request<ProviderCredential[]>('/v1/credentials', { signal }),
+  createCredential: (provider: ProviderCredential['provider'], label: string, apiKey: string, signal?: AbortSignal) => request<ProviderCredential>('/v1/credentials', { method: 'POST', signal, body: JSON.stringify({ provider, label, api_key: apiKey }) }),
+  replaceCredential: (id: string, apiKey: string, signal?: AbortSignal) => request<{ updated: boolean }>(`/v1/credentials/${encodeURIComponent(id)}`, { method: 'PUT', signal, body: JSON.stringify({ api_key: apiKey }) }),
+  deleteCredential: (id: string, signal?: AbortSignal) => request<void>(`/v1/credentials/${encodeURIComponent(id)}`, { method: 'DELETE', signal }),
+  models: (signal?: AbortSignal) => request<ConfiguredModel[]>('/v1/models', { signal }),
+  configureModel: (tier: TierName, model: ModelConfiguration, signal?: AbortSignal) => request<unknown>(`/v1/models/${tier}`, { method: 'PUT', signal, body: JSON.stringify(model) }),
+  deleteModel: (tier: TierName, signal?: AbortSignal) => request<void>(`/v1/models/${tier}`, { method: 'DELETE', signal }),
   clientConfig: (signal?: AbortSignal) => request<ClientConfig>('/v1/client-config', { signal }),
   me: (signal?: AbortSignal) => request<WorkspaceAccount>('/v1/me', { signal }),
   keys: (signal?: AbortSignal) => request<GatewayKey[]>('/v1/api-keys', { signal }),

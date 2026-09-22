@@ -1,0 +1,8 @@
+/* Compact credential and model controls with no secret values in lists or status text. */
+.credentialsForm { display: grid; grid-template-columns: 130px minmax(100px, 1fr) minmax(160px, 1.5fr) auto; gap: 12px; align-items: end; margin-top: 22px; }
+.modelForm { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 15px; align-items: end; }
+.toggle { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; min-height: 36px; }
+.toggle input { accent-color: var(--accent); }
+.note { display: flex; align-items: center; gap: 7px; margin-top: 24px; color: var(--muted); font-size: 11px; }
+@media (max-width: 1150px) { .credentialsForm { grid-template-columns: 1fr 1fr; } .modelForm { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .credentialsForm, .modelForm { grid-template-columns: 1fr; } }

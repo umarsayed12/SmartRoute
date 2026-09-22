@@ -1,6 +1,6 @@
 // Provide the responsive five-route workspace shell and live gateway status.
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { ArrowUpRight, ChevronRight, FlaskConical, KeyRound, LayoutDashboard, ListFilter, LogOut, MessageSquare, RefreshCw, Route, Settings2 } from 'lucide-react'
+import { ArrowUpRight, Boxes, ChevronRight, FlaskConical, KeyRound, LayoutDashboard, ListFilter, LogOut, MessageSquare, RefreshCw, Route, Settings2 } from 'lucide-react'
 import { NavLink, Navigate, Route as PageRoute, Routes, useLocation } from 'react-router-dom'
 import { api } from './api'
 import { useAuth } from './auth'
@@ -14,6 +14,7 @@ const Requests = lazy(() => import('./pages/Requests'))
 const TestLab = lazy(() => import('./pages/TestLab'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Account = lazy(() => import('./pages/Account'))
+const Models = lazy(() => import('./pages/Models'))
 
 const navigation = [
   { path: '/', label: 'Playground', icon: MessageSquare },
@@ -33,7 +34,7 @@ export default function App() {
   const [checking, setChecking] = useState(true)
   const [tierError, setTierError] = useState(false)
   const [revision, setRevision] = useState(0)
-  const links = auth.config.mode === 'local' ? navigation : [...navigation, { path: '/account', label: 'API Keys', icon: KeyRound }]
+  const links = auth.config.mode === 'local' ? navigation : [...navigation, { path: '/models', label: 'Models', icon: Boxes }, { path: '/account', label: 'API Keys', icon: KeyRound }]
   const activePage = links.find((item) => item.path === location.pathname) ?? navigation[0]
   const isPlayground = location.pathname === '/'
   const isTestLab = location.pathname === '/testlab'
@@ -102,6 +103,7 @@ export default function App() {
         <PageRoute path="/testlab" element={null} />
         <PageRoute path="/settings" element={<Settings />} />
         {auth.config.mode !== 'local' && <PageRoute path="/account" element={<Account />} />}
+        {auth.config.mode !== 'local' && <PageRoute path="/models" element={<Models />} />}
         <PageRoute path="*" element={<Navigate to="/" replace />} />
       </Routes></Suspense>
     </main>

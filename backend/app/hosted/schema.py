@@ -73,6 +73,8 @@ models = Table(
     Column("input_price_per_1k", Numeric(20, 10), nullable=False),
     Column("output_price_per_1k", Numeric(20, 10), nullable=False),
     Column("enabled", Boolean, nullable=False, server_default="true"),
+    Column("send_temperature", Boolean, nullable=False, server_default="true"),
+    Column("self_check_max_tokens", Integer, nullable=False, server_default="256"),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     ForeignKeyConstraint(
         ["workspace_id", "credential_id"],
@@ -82,6 +84,7 @@ models = Table(
     UniqueConstraint("workspace_id", "tier", name="uq_models_workspace_tier"),
     CheckConstraint("tier IN ('small', 'medium', 'large')", name="ck_models_tier"),
     CheckConstraint("input_price_per_1k >= 0 AND output_price_per_1k >= 0", name="ck_models_prices"),
+    CheckConstraint("self_check_max_tokens >= 32 AND self_check_max_tokens <= 1024", name="ck_models_check_budget"),
 )
 
 workspace_settings = Table(
@@ -103,6 +106,8 @@ requests = Table(
     Column("id", String(80), primary_key=True),
     Column("workspace_id", Uuid, ForeignKey(f"{SCHEMA}.workspaces.id", ondelete="CASCADE"), nullable=False),
     Column("api_key_id", Uuid),
+    Column("status", String(20), nullable=False, server_default="completed"),
+    Column("error_code", String(80)),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("prompt_preview", String(200), nullable=False),
     Column("messages", json_type, nullable=False),
@@ -119,7 +124,7 @@ requests = Table(
     Column("prompt_tokens", Integer, nullable=False),
     Column("completion_tokens", Integer, nullable=False),
     Column("latency_ms", Integer, nullable=False),
-    Column("actual_cost_usd", Numeric(20, 10), nullable=False),
+    Column("actual_cost_usd", Numeric(20, 10), nullable=True),
     Column("reference_cost_usd", Numeric(20, 10), nullable=False),
     Column("feedback", Integer),
     Column("feedback_note", Text),
@@ -130,6 +135,8 @@ requests = Table(
     CheckConstraint("confidence >= 0 AND confidence <= 1", name="ck_requests_confidence"),
     CheckConstraint("prompt_tokens >= 0 AND completion_tokens >= 0 AND latency_ms >= 0", name="ck_requests_usage"),
     CheckConstraint("actual_cost_usd >= 0 AND reference_cost_usd >= 0", name="ck_requests_costs"),
+    CheckConstraint("status IN ('completed', 'failed')", name="ck_requests_status"),
+    CheckConstraint("status != 'completed' OR actual_cost_usd IS NOT NULL", name="ck_requests_completed_cost"),
     Index("ix_requests_workspace_created", "workspace_id", "created_at", "id"),
 )
 
@@ -140,13 +147,15 @@ request_attempts = Table(
     Column("request_id", String(80), nullable=False),
     Column("sequence", Integer, nullable=False),
     Column("kind", String(20), nullable=False),
+    Column("status", String(20), nullable=False, server_default="completed"),
+    Column("error_code", String(80)),
     Column("tier", String(20), nullable=False),
     Column("provider", String(20), nullable=False),
     Column("model", String(200), nullable=False),
     Column("prompt_tokens", Integer, nullable=False),
     Column("completion_tokens", Integer, nullable=False),
     Column("latency_ms", Integer, nullable=False),
-    Column("cost_usd", Numeric(20, 10), nullable=False),
+    Column("cost_usd", Numeric(20, 10), nullable=True),
     Column("usage_details", json_type, nullable=False),
     ForeignKeyConstraint(
         ["workspace_id", "request_id"], [f"{SCHEMA}.requests.workspace_id", f"{SCHEMA}.requests.id"],
@@ -154,6 +163,7 @@ request_attempts = Table(
     ),
     UniqueConstraint("request_id", "sequence", name="uq_attempts_sequence"),
     CheckConstraint("kind IN ('answer', 'self_check')", name="ck_attempts_kind"),
+    CheckConstraint("status IN ('completed', 'failed')", name="ck_attempts_status"),
     CheckConstraint("prompt_tokens >= 0 AND completion_tokens >= 0 AND latency_ms >= 0 AND cost_usd >= 0", name="ck_attempts_usage"),
 )
 

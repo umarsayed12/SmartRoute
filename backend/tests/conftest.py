@@ -1,16 +1,20 @@
 """Share an ASGI client and isolate request data and trained model artifacts in tests."""
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 import pytest_asyncio
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 
 from app import db
 from app.config import RuntimeSettings
 from app.main import app
+from app.hosted import schema
+from app.hosted.store import WorkspaceStore
 
 
 @pytest.fixture(autouse=True)
@@ -51,3 +55,14 @@ def mock_http(
         monkeypatch.setattr(httpx, "AsyncClient", create_client)
 
     return install
+
+
+@pytest.fixture
+def store() -> Iterator[WorkspaceStore]:
+    """Build the hosted schema in an isolated test-only SQL database."""
+    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}, execution_options={"schema_translate_map": {schema.SCHEMA: None}})
+    with engine.begin() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        schema.metadata.create_all(connection)
+    yield WorkspaceStore(engine)
+    engine.dispose()

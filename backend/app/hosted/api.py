@@ -1,23 +1,31 @@
 """Authenticate every workspace endpoint and separate owner actions from gateway-key use."""
 
+import asyncio
+from contextlib import contextmanager
+from collections.abc import Iterator
 from datetime import datetime, time, timedelta, timezone
 from io import BytesIO
 from typing import Annotated, Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import joblib
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
 
 from app.api.stats import summarize_stats
-from app.api.testlab import get_suites
+from app.api.testlab import MAX_OUTPUT_TOKENS, SuiteRunRequest, _summarize, get_suites, load_suite
 from app.config import RuntimeSettings
 from app.hosted.identity import IdentityServiceUnavailableError, InvalidIdentityError
 from app.hosted.store import Principal, WorkspaceStore
+from app.hosted.models import CredentialCreate, CredentialReplace, ModelConfiguration, TierName
+from app.hosted import providers
+from app.hosted.routing import HostedChatRequest, RoutingFailure, route_and_log
 from app.routing.features import FEATURE_ORDER
-from app.schemas import FeedbackRequest, TrainingMetadata
+from app.schemas import ChatCompletionResponse, FeedbackRequest, TrainingMetadata
 from app.train import fit_router
 
 router = APIRouter(prefix="/v1")
@@ -65,6 +73,75 @@ def owner(actor: Annotated[Principal, Depends(current_principal)]) -> Principal:
 Actor = Annotated[Principal, Depends(current_principal)]
 Owner = Annotated[Principal, Depends(owner)]
 Store = Annotated[WorkspaceStore, Depends(store_for)]
+
+
+def verified_owner(actor: Owner) -> Principal:
+    """Require verified email before accepting credentials that can incur provider charges."""
+    if not actor.email_verified:
+        raise HTTPException(status_code=403, detail="Verify your email before configuring models.")
+    return actor
+
+
+VerifiedOwner = Annotated[Principal, Depends(verified_owner)]
+
+
+@router.get("/credentials")
+def credentials(actor: Owner, store: Store) -> list[dict[str, Any]]:
+    """Return redacted metadata for the owner's stored provider credentials."""
+    return store.credentials(actor)
+
+
+@router.post("/credentials", status_code=201)
+def create_credential(body: CredentialCreate, request: Request, actor: VerifiedOwner, store: Store) -> dict[str, Any]:
+    """Persist a supported provider key encrypted at rest without echoing it."""
+    try:
+        return store.create_credential(actor, body, request.app.state.configuration)
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail="A credential with this provider and label already exists.") from None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Credential could not be saved. Check limits and server encryption configuration.") from None
+
+
+@router.put("/credentials/{credential_id}")
+def replace_credential(credential_id: UUID, body: CredentialReplace, request: Request, actor: VerifiedOwner, store: Store) -> dict[str, bool]:
+    """Rotate an owned key while preserving references from its models."""
+    try:
+        if not store.replace_credential(actor, credential_id, body.api_key.get_secret_value(), request.app.state.configuration):
+            raise HTTPException(status_code=404, detail="Provider credential not found.")
+    except ValueError:
+        raise HTTPException(status_code=503, detail="Provider encryption is unavailable.") from None
+    return {"updated": True}
+
+
+@router.delete("/credentials/{credential_id}", status_code=204)
+def delete_credential(credential_id: UUID, actor: Owner, store: Store) -> Response:
+    """Delete an owned credential and its model mappings, not historical request records."""
+    if not store.delete_credential(actor, credential_id):
+        raise HTTPException(status_code=404, detail="Provider credential not found.")
+    return Response(status_code=204)
+
+
+@router.get("/models")
+def models(actor: Actor, store: Store) -> list[dict[str, Any]]:
+    """List the authenticated workspace's configured models without provider secrets."""
+    return store.model_rows(actor)
+
+
+@router.put("/models/{tier}")
+def configure_model(tier: TierName, body: ModelConfiguration, actor: VerifiedOwner, store: Store) -> dict[str, Any]:
+    """Create or replace one tier using an owned credential and explicit token prices."""
+    try:
+        return store.configure_model(actor, tier, body)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Provider credential not found.") from None
+
+
+@router.delete("/models/{tier}", status_code=204)
+def delete_model(tier: TierName, actor: Owner, store: Store) -> Response:
+    """Remove a workspace tier without substituting a shared or local default."""
+    if not store.delete_model(actor, tier):
+        raise HTTPException(status_code=404, detail="Model tier not found.")
+    return Response(status_code=204)
 
 
 class KeyRequest(BaseModel):
@@ -163,9 +240,21 @@ def update_settings(body: RuntimeSettings, actor: Owner, store: Store) -> Runtim
 
 
 @router.get("/tiers")
-def tiers(actor: Actor, store: Store) -> list[dict[str, Any]]:
-    """Expose owned model metadata; model onboarding and probing arrive in M3."""
-    return store.tiers(actor)
+async def tiers(request: Request, actor: Actor, store: Store) -> list[dict[str, Any]]:
+    """Probe only the workspace's enabled models at fixed provider metadata endpoints."""
+    rows = await run_in_threadpool(store.model_rows, actor)
+    async def probe(row: dict[str, Any]) -> dict[str, Any]:
+        """Keep keys and ciphertext internal even when an availability check fails."""
+        available = False
+        if row["enabled"]:
+            try:
+                provider, key = await run_in_threadpool(store.provider_key, actor, row["credential_id"], request.app.state.configuration)
+                available = await providers.reachable(request.app.state.provider_client, provider, row["model"], key)
+            except (LookupError, ValueError):
+                pass
+        return {"name": row["tier"], "model": row["model"], "provider": row["provider"], "base_url": providers.ROOTS[row["provider"]],
+                "enabled": row["enabled"], "reachable": available, "input_price_per_1k": float(row["input_price_per_1k"]), "output_price_per_1k": float(row["output_price_per_1k"])}
+    return await asyncio.gather(*(probe(row) for row in rows))
 
 
 @router.get("/train/status")
@@ -206,8 +295,55 @@ def runs(actor: Actor, store: Store, limit: Annotated[int, Query(ge=1, le=100)] 
     return store.runs(actor, limit, offset)
 
 
-@router.post("/chat/completions")
+@contextmanager
+def _inference_slot(request: Request, actor: Principal) -> Iterator[None]:
+    """Bound preview concurrency without holding database connections during provider calls."""
+    if actor.auth_type == "session" and not actor.email_verified:
+        raise HTTPException(status_code=403, detail="Verify your email before using provider models.")
+    with request.app.state.inference_lock:
+        active = request.app.state.inference_workspaces
+        if actor.workspace_id in active:
+            raise HTTPException(status_code=429, detail="This workspace already has an active inference operation.")
+        if len(active) >= 4:
+            raise HTTPException(status_code=503, detail="Gateway inference capacity is busy. Try again later.")
+        active.add(actor.workspace_id)
+    try:
+        yield
+    finally:
+        with request.app.state.inference_lock:
+            active.discard(actor.workspace_id)
+
+
+@router.post("/chat/completions", response_model=ChatCompletionResponse)
+async def chat_completion(
+    body: HostedChatRequest, request: Request, actor: Actor, store: Store,
+    source: Annotated[Literal["api", "playground", "testlab", "sdk"], Header(alias="X-SmartRoute-Source")] = "api",
+) -> ChatCompletionResponse | JSONResponse:
+    """Generate and synchronously audit one response using only this workspace's models."""
+    with _inference_slot(request, actor):
+        try:
+            return await route_and_log(actor, store, request.app.state.configuration, request.app.state.provider_client, body, source)
+        except RoutingFailure as error:
+            return JSONResponse(status_code=error.status, content={"detail": str(error), "request_id": error.request_id})
+
+
 @router.post("/testlab/run")
-def inference_pending(actor: Actor) -> None:
-    """Fail closed until M3 can call owned providers; never fall back to local Qwen."""
-    raise HTTPException(status_code=409, detail="Workspace model setup is required. Provider routing is enabled in migration checkpoint M3.")
+async def run_suite(body: SuiteRunRequest, request: Request, actor: Actor, store: Store) -> dict[str, Any]:
+    """Run the shared suite sequentially with workspace-scoped inference and history."""
+    with _inference_slot(request, actor):
+        run_id = f"testlab-{uuid4().hex}"
+        created = datetime.now(timezone.utc)
+        results = []
+        for prompt in load_suite()[:body.limit]:
+            try:
+                completion = await route_and_log(actor, store, request.app.state.configuration, request.app.state.provider_client,
+                    HostedChatRequest(model=f"smartroute/{body.mode}", messages=[{"role": "user", "content": prompt.prompt}], max_tokens=MAX_OUTPUT_TOKENS), "testlab")
+            except RoutingFailure as error:
+                raise HTTPException(status_code=error.status, detail=f"Suite stopped at {prompt.id} after {len(results)} completed prompts. {error}") from None
+            routing = completion.smartroute
+            results.append({"id": prompt.id, "request_id": completion.id, "prompt": prompt.prompt, "expected_tier": prompt.expected_tier,
+                "tier_final": routing.tier_final, "escalated": routing.escalated, "confidence": routing.confidence, "latency_ms": routing.latency_ms,
+                "actual_cost_usd": routing.actual_cost_usd, "reference_cost_usd": routing.reference_cost_usd, "match": routing.tier_final == prompt.expected_tier})
+        values = {"run_id": run_id, "created_at": created, "suite": body.suite, "mode": body.mode, "prompt_count": len(results), "summary": _summarize(results), "results": results}
+        await run_in_threadpool(store.record_run, actor, values)
+        return values

@@ -17,4 +17,7 @@
 .summary { cursor: pointer; font-size: 13px; font-weight: 550; margin-bottom: 15px; }
 .note { margin: 17px 0; }
 .chosen { border-color: var(--accent); color: var(--accent); }
+.attempt { padding: 14px 0; border-bottom: 1px solid var(--border-soft); font-size: 11px; overflow-wrap: anywhere; }
+.attempt summary { cursor: pointer; line-height: 1.7; }
+.attempt pre { margin-top: 15px; }
 @media (max-width: 600px) { .header { padding: 18px; } .body { padding: 20px 18px 30px; } }

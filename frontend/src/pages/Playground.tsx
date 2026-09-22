@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, ArrowUpRight, Braces, GitBranch, Layers3, MessageSquare, RotateCcw, Route, Square, Trash2 } from 'lucide-react'
 import { api } from '../api'
+import { useAuth } from '../auth'
 import type { ChatCompletion, ChatMessage, PlaygroundAnswer, PlaygroundMode, PlaygroundTurn, RunMode, Tier } from '../types'
 import AnswerCard from '../components/AnswerCard'
 import TierBadge from '../components/TierBadge'
@@ -23,6 +24,7 @@ const suggestions = [
 interface Props { tiers: Tier[]; tierError: boolean; visible: boolean }
 
 export default function Playground({ tiers, tierError, visible }: Props) {
+  const local = useAuth().config.mode === 'local'
   const [mode, setMode] = useState<PlaygroundMode>('auto')
   const [draft, setDraft] = useState('')
   const [turns, setTurns] = useState<PlaygroundTurn[]>([])
@@ -135,10 +137,10 @@ export default function Playground({ tiers, tierError, visible }: Props) {
       <button type="button" className={styles.clear} onClick={clearChat} disabled={!turns.length && !draft} aria-label="Clear chat" title="Clear this conversation"><Trash2 size={14} /><span>Clear chat</span></button>
     </div>
     <div className={styles.models} aria-label="Configured model tiers">
-      {tiers.length ? tiers.map((tier) => <div key={tier.name} className={styles.modelItem} title={!tier.enabled ? 'Disabled; resolves to medium' : tier.reachable ? 'Model available' : 'Model unavailable'}>
-        <TierBadge tier={tier.name} /><span className={!tier.enabled || !tier.reachable ? styles.unavailable : ''}>{tier.enabled ? tier.model : 'Medium fallback'}</span>
+      {tiers.length ? tiers.map((tier) => <div key={tier.name} className={styles.modelItem} title={!tier.enabled ? (local ? 'Disabled; resolves to medium' : 'Disabled workspace tier') : tier.reachable ? 'Model available' : 'Model unavailable'}>
+        <TierBadge tier={tier.name} /><span className={!tier.enabled || !tier.reachable ? styles.unavailable : ''}>{tier.enabled ? tier.model : local ? 'Medium fallback' : 'Disabled'}</span>
         {tier.enabled && !tier.reachable && <span className={styles.warningDot} />}
-      </div>) : <span className={styles.modelLoading}>{tierError ? 'Tier status unavailable' : 'Checking model availability'}</span>}
+      </div>) : <span className={styles.modelLoading}>{tierError ? 'Tier status unavailable' : local ? 'Checking model availability' : 'No workspace tiers loaded'}</span>}
     </div>
 
     <div className={styles.thread} ref={thread} aria-label="Conversation">
