@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     )
 
     OLLAMA_BASE_URL: str = "http://localhost:11434"
+    APP_MODE: Literal["local", "hosted"] = "local"
     LARGE_MODEL: str = ""
     LARGE_BASE_URL: str = ""
     LARGE_API_KEY: SecretStr = SecretStr("")

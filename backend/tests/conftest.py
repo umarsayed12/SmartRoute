@@ -17,6 +17,7 @@ from app.main import app
 def isolated_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point database and model operations at separate temporary paths for every test."""
     path = tmp_path / "smartroute.db"
+    monkeypatch.setattr(db.settings, "APP_MODE", "local")
     monkeypatch.setattr(db.settings, "DB_PATH", path)
     monkeypatch.setattr(db.settings, "MODEL_PATH", tmp_path / "router_model.joblib")
     for name, value in RuntimeSettings().model_dump().items():

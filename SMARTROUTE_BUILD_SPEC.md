@@ -1,7 +1,61 @@
+<!-- Active hosted migration plan followed by the historical local-prototype build specification. -->
 # SmartRoute — Build Specification for GitHub Copilot
 
 > **Repo:** `https://github.com/umarsayed12/SmartRoute`
 > **Owner:** `Umar Khursheed` · **Author handle for package metadata:** `umarsayed12`
+
+> **Architecture amendment, 2026-09-22:** The owner approved a hosted,
+> bring-your-own-model service using Neon Postgres and Neon managed authentication.
+> This amendment supersedes the local/shared-storage assumptions below. Original
+> Phases 1-11 are complete historical checkpoints; original Phases 12-13 are paused.
+
+## Active Hosted Migration
+
+The detailed architecture, security boundaries, setup, and acceptance criteria are
+in [docs/HOSTED_ARCHITECTURE.md](docs/HOSTED_ARCHITECTURE.md). Follow these checkpoints
+in order, test and push each one, and stop for the owner's "next" after pushing.
+
+| Checkpoint | Scope | Completion gate |
+| --- | --- | --- |
+| M1 | Neon configuration, versioned workspace schema, secret primitives, migration docs | Connections verified; migration applied; schema/security tests pass; legacy data unchanged |
+| M2 | Managed-auth login, verified backend identity, private workspace provisioning, SDK key creation/revocation, tenant-scoped repositories | Two-user isolation tests for every data operation; no unauthenticated workspace access |
+| M3 | Encrypted OpenAI/Anthropic model configuration and tenant-aware routing | At least one owned model required; no hosted Ollama fallback; all billable attempts tracked |
+| M4 | Web onboarding, model management, Integration page, SDK and CLI | A new user can configure models, obtain a gateway key, call the SDK, and see only their logs |
+| M5 | Public-deployment security gates, quotas/limits, migration guide, publishing and deployment | Authentication, authorization, credential redaction, isolation, and abuse controls verified end to end |
+
+### Approved Decisions
+
+- One private workspace per user initially; team invitations are deferred.
+- Neon managed email/password authentication; passwords remain with the auth service.
+- Neon Postgres stores workspace data, not just user profiles. Do not enable the
+  browser Data API for application data as part of this migration.
+- Saved provider keys are encrypted at rest with a server-only key and never
+  returned by API reads. Gateway API keys are high-entropy, hashed, and shown once.
+- OpenAI and native Anthropic cloud APIs first. No public arbitrary endpoint URLs,
+  local-network targets, or shared owner-funded model fallback in hosted mode.
+- At least one user-configured model is mandatory. One model supports tracking;
+  multiple configured tiers permit selection/escalation.
+- SmartRoute has a free plan initially; model-provider charges belong to users.
+  Reserve plan/usage data, but do not add payment processing yet.
+- Keep the existing SQLite database and local prototype intact until explicit
+  cutover. Never silently import local shared history into a new user's workspace.
+- The current HTTP app remains local-only. `APP_MODE=hosted` is intentionally
+  blocked during foundation work. Do not remove that guard until the required
+  hosted routes, model ownership, and public-deployment gates are complete.
+
+### Updated Coding Rules
+
+- Retain Python 3.11+, FastAPI, async httpx, Pydantic v2, scikit-learn, and joblib.
+- Hosted persistence uses SQLAlchemy Core 2, psycopg 3, and Alembic migrations;
+  `sqlite3` remains only in the historical local implementation during cutover.
+- Retain React 18, Vite, TypeScript, CSS Modules, Recharts, and the existing visual
+  language. Use Neon's programmatic auth SDK with custom screens, not a UI framework.
+- The eventual Python SDK remains httpx-based. Publishing waits for the hosted
+  authentication and model-configuration contract to stabilize.
+- Treat credentials as secrets throughout tools, tests, logs, configuration, and
+  error output. Request readiness flags, never secret values in chat.
+- Auth provider settings and connection credentials are deployment configuration;
+  routing settings, saved models, usage, feedback, and training artifacts are per workspace.
 
 ---
 
@@ -9,7 +63,7 @@
 
 You are GitHub Copilot (agent mode) working inside this repository on **Windows with PowerShell**.
 
-1. Work through the **Phases in order**. Do not skip ahead or merge phases.
+1. Follow the **Active Hosted Migration** above. The original phases below are historical reference until explicitly resumed.
 2. At the start of each phase, briefly state the goal in one line, then create/modify the files.
 3. When the phase's files are done, **run the phase's PowerShell block** in the integrated terminal (install, test, run, then `git add / commit / push`).
 4. After pushing, **stop and wait** for me to say "next" before starting the next phase. Do not continue on your own.

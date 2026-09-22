@@ -1,6 +1,12 @@
 <!-- Setup and behavior notes for the SmartRoute frontend workspace. -->
 # SmartRoute Frontend
 
+**Hosted migration:** the existing screens remain the local prototype. Managed
+login, private workspace onboarding, saved provider-model configuration, and an
+Integration page are upcoming checkpoints in the
+[hosted architecture plan](../docs/HOSTED_ARCHITECTURE.md). The current UI is not
+an authenticated multi-user deployment.
+
 React 18, TypeScript, Vite, and CSS Modules. Phase 11 provides the Playground,
 Dashboard, Requests explorer, Test Lab, and Settings using real gateway APIs.
 Views load on demand and display explicit loading, empty, and error states.

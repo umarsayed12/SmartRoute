@@ -19,6 +19,8 @@ from app.config import load_runtime_settings, settings
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Restore runtime settings and initialize storage before accepting traffic."""
+    if settings.APP_MODE == "hosted":
+        raise RuntimeError("Hosted mode is not enabled until authentication and workspace-scoped routes are complete.")
     load_runtime_settings()
     db.init_db()
     yield
