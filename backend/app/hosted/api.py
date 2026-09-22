@@ -50,17 +50,24 @@ async def current_principal(
         actor = await run_in_threadpool(store.authenticate_api_key, token)
         if actor is None:
             raise HTTPException(status_code=401, detail="Invalid, expired, or revoked API key.", headers={"WWW-Authenticate": "Bearer"})
-        return actor
+        return admit_actor(request, actor)
     try:
         identity = await request.app.state.verifier.verify(token)
         identity = await run_in_threadpool(request.app.state.profile_resolver, identity)
-        return await run_in_threadpool(store.provision, identity)
+        return admit_actor(request, await run_in_threadpool(store.provision, identity))
     except InvalidIdentityError:
         raise HTTPException(status_code=401, detail="Your session is invalid or expired.", headers={"WWW-Authenticate": "Bearer"}) from None
     except IdentityServiceUnavailableError:
         raise HTTPException(status_code=503, detail="Authentication service is unavailable.") from None
     except PermissionError:
         raise HTTPException(status_code=401, detail="The authenticated account is unavailable.") from None
+
+
+def admit_actor(request: Request, actor: Principal) -> Principal:
+    """Apply a shared workspace rate limit so issuing more gateway keys cannot bypass it."""
+    if request.app.state.public_mode and not request.app.state.workspace_limiter.allow(str(actor.workspace_id)):
+        raise HTTPException(status_code=429, detail="Workspace API rate limit reached.", headers={"Retry-After": "60"})
+    return actor
 
 
 def owner(actor: Annotated[Principal, Depends(current_principal)]) -> Principal:
@@ -270,6 +277,8 @@ def train(request: Request, actor: Owner, store: Store) -> dict[str, Any]:
     with request.app.state.training_lock:
         if actor.workspace_id in request.app.state.training_workspaces:
             raise HTTPException(status_code=409, detail="Workspace training is already running.")
+        if request.app.state.public_mode and request.app.state.training_workspaces:
+            raise HTTPException(status_code=503, detail="Gateway training capacity is busy.")
         request.app.state.training_workspaces.add(actor.workspace_id)
     try:
         report, model = fit_router(store.training_rows(actor))

@@ -4,7 +4,7 @@
 Approved on 2026-09-22. This document supersedes the original single-workspace
 deployment assumptions. The original Phases 1-11 remain a working local prototype.
 
-**Current checkpoint: M4 SDK and onboarding preview.** Neon migrations through
+**Current checkpoint: M5 Render deployment preparation.** Neon migrations through
 `0002_owned_inference` are applied. Managed sign-in, owner workspaces, gateway keys,
 encrypted provider configuration, owned cloud routing, private attempt history,
 settings/stats, and workspace-specific training run in a separate preview app.
@@ -12,7 +12,12 @@ Provider contracts and failures are tested with mocked HTTP; live paid inference
 has not been verified. The source SDK/CLI and web Integration flow are implemented.
 SDK 0.1.0 is available on TestPyPI; its clean registry installation is unverified
 because downloads are blocked on the managed development laptop. Production PyPI
-publication and public hosted mode remain pending M5 release/deployment gates.
+publication and actual public deployment remain pending M5 release/deployment gates.
+The new Render Docker setup serves the built React frontend and authenticated API
+on one origin. Migration `0003_tenant_policies` is written but not applied to live
+Neon; runtime-role verification and explicit release approval gate public startup.
+Follow [the Render runbook](RENDER_DEPLOYMENT.md) for variables, rotation, grants,
+retention, limitations, and launch verification. Deploy first, then publish to PyPI.
 
 ## Product Contract
 
@@ -361,12 +366,20 @@ M5 checks. See [the SDK guide](../sdk/README.md) for the current source workflow
 
 ### M5: Public Deployment Gate
 
-Verify least-privilege database access/RLS behavior, account/workspace isolation,
+The code now includes same-origin compiled SPA serving, a non-root Docker image,
+single-worker startup, bounded bodies/deadlines, process/workspace rate limits,
+persisted daily/history checks, retention cleanup, transaction-local tenant policies,
+and restricted-role startup verification. Bootstrap identities/workspaces/key hashes
+still require pre-tenant access with application predicates; private data tables use
+RLS as an additional boundary. The runtime role cannot own/bypass those tables.
+
+Still verify least-privilege database access/RLS behavior in the actual Neon branch, account/workspace isolation,
 auth origins and recovery flows, rate limits, concurrency limits, prompt/token
 limits, request timeouts, retention, secret rotation, and cost attribution. Define
 single-process versus distributed limit enforcement explicitly. Add deployment
-configuration, final architecture docs, and SDK publishing. Lift the hosted-mode
-guard only after these gates pass.
+configuration, final architecture docs, and SDK publishing. Set the hosted release
+approval only after the documented external preparation gates pass; it is not a
+substitute for testing. Keep autoscaling off until shared limit enforcement exists.
 
 No automatic import of shared local logs is planned. If wanted later, an explicit
 owner-confirmed migration must assign every imported row to one workspace and

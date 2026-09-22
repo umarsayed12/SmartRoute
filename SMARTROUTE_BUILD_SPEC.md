@@ -17,7 +17,10 @@ Python SDK/CLI, setup gating, and Integration page. Provider validation is mocke
 no live paid inference was run. SDK 0.1.0 is uploaded to TestPyPI; clean registry
 installation remains unverified because downloads are blocked on the managed laptop.
 Manual production publishing and deployed SDK/web acceptance are documented in the
-architecture guide. M5 public deployment and production PyPI publishing remain pending.
+architecture guide. M5 deployment code is prepared for one Render Docker service,
+with backend-served React, public request controls, tenant-policy migration, and
+restricted runtime-role checks. Live migration/role/auth/provider verification and
+secret rotation remain pending. Deploy and verify first; production PyPI comes afterward.
 
 The detailed architecture, security boundaries, setup, and acceptance criteria are
 in [docs/HOSTED_ARCHITECTURE.md](docs/HOSTED_ARCHITECTURE.md). Follow these checkpoints

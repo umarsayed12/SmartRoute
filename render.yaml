@@ -1,0 +1,34 @@
+# Build the frontend into one Docker web service; secrets and release approval are entered privately.
+services:
+  - type: web
+    name: smartroute
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: "off"
+    envVars:
+      - key: APP_MODE
+        value: hosted
+      - key: HOSTED_RELEASE_APPROVED
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: NEON_AUTH_BASE_URL
+        sync: false
+      - key: NEON_AUTH_ISSUER
+        sync: false
+      - key: NEON_AUTH_AUDIENCE
+        sync: false
+      - key: NEON_AUTH_ALGORITHM
+        value: EdDSA
+      - key: PROVIDER_ENCRYPTION_KEY
+        sync: false
+      - key: REQUEST_RETENTION_DAYS
+        value: "30"
+      - key: WORKSPACE_INFERENCES_PER_DAY
+        value: "100"
+      - key: WORKSPACE_HISTORY_LIMIT
+        value: "1000"

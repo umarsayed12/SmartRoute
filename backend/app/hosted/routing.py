@@ -108,6 +108,10 @@ async def route_and_log(
     model = next((item for item in models if TIER_ORDER.index(item["tier"]) >= TIER_ORDER.index(chosen)), models[-1])
     if model["tier"] != chosen:
         reason += f" {chosen.capitalize()} is not enabled; using owned {model['tier']} tier."
+    if configured.HOSTED_RELEASE_APPROVED:
+        capacity_error = await run_in_threadpool(store.inference_capacity, actor, configured)
+        if capacity_error:
+            raise RoutingFailure(capacity_error, 429)
     question = next(message["content"] for message in reversed(messages) if message["role"] == "user")
     request_id = f"chatcmpl-{uuid4().hex}"
     created = datetime.now(timezone.utc)

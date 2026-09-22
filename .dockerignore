@@ -1,0 +1,17 @@
+# Exclude credentials, private experiments, development environments, and generated files from build context.
+.git
+.github
+.vscode
+**/.env
+**/.env.*
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/node_modules
+**/dist
+**/build
+**/*.db
+**/*.joblib
+backend/data
+backend/static
+sdk

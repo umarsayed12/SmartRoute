@@ -8,7 +8,7 @@ interface Props { client: ManagedAuthClient; onSignedIn: () => Promise<void>; co
 
 export default function AuthScreen({ client, onSignedIn, connectionError }: Props) {
   const resetToken = new URLSearchParams(location.search).get('token')
-  const [mode, setMode] = useState<'login' | 'signup' | 'recover' | 'reset'>(location.pathname === '/reset-password' && resetToken ? 'reset' : 'login')
+  const [mode, setMode] = useState<'login' | 'signup' | 'recover' | 'reset'>(location.pathname.replace(/\/+$/, '') === '/reset-password' && resetToken ? 'reset' : 'login')
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
@@ -67,7 +67,7 @@ export default function AuthScreen({ client, onSignedIn, connectionError }: Prop
         <button type="button" disabled={busy} onClick={() => changeMode(mode === 'login' ? 'signup' : 'login')}>{mode === 'login' ? 'Create an account' : 'Back to sign in'}</button>
         {mode === 'login' && <button type="button" disabled={busy} onClick={() => changeMode('recover')}>Forgot password?</button>}
       </div>
-      <span className={styles.preview}>Authenticated preview</span>
+      <span className={styles.preview}>Managed authentication</span>
     </section>
   </main>
 }

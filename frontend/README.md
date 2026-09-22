@@ -165,7 +165,7 @@ npm.cmd run lint
 ```
 
 The same commands are available as the VS Code tasks `build: frontend` and
-`lint: frontend`. The build runs TypeScript and produces `dist/`; lint uses the
+`lint: frontend`. The build runs TypeScript and produces `../backend/static/`; lint uses the
 scaffold's Oxlint configuration. The React Compiler is not enabled. Fonts (Manrope
 and JetBrains Mono) are served locally through Fontsource packages. Icons use
 Lucide, and Recharts is installed for the next phase's dashboard.
@@ -178,8 +178,12 @@ retry, training results, sequential Test Lab comparison, and responsive tables.
 Mocked browser responses are used for deterministic writes and failure cases so
 test ratings and settings do not alter real backend data.
 
-Production serving must route SPA URLs to `index.html` and proxy API traffic to
-the backend. Public hosting configuration and security gates belong to M5. M3
+The backend now serves the compiled SPA and its assets from the same origin as
+the API. Known page URLs work on direct navigation and refresh; missing assets and
+API routes stay 404. Public mode hides the development API-reference link and
+shows configured request retention in Settings. No frontend environment secrets
+or separate Render static-site rewrites are needed. Follow the
+[Render deployment guide](../docs/RENDER_DEPLOYMENT.md) before enabling public mode. M3
 browser checks use synthetic auth/provider responses, including credential
 rotation/deletion, explicit model prices, verification gating, mobile layout,
 and failed-attempt details. No live paid OpenAI/Anthropic call was used for this checkpoint.

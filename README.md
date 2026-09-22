@@ -13,8 +13,10 @@ loopback preview now supports Neon login, private workspaces, gateway-key manage
 encrypted OpenAI/Anthropic credentials, owned model routing, and private attempt-level
 history. M4 adds the source Python SDK/CLI, setup gating, and Integration page.
 SDK 0.1.0 is uploaded to TestPyPI; clean registry installation is unverified on the
-managed development laptop. M5 public deployment and production PyPI publishing
-remain pending. Provider protocol tests use mocked HTTP, not live paid inference.
+managed development laptop. M5 now includes a gated single-service Render build;
+secret rotation, live database/auth/provider checks, and deployment remain pending.
+Production PyPI publishing comes after deployment. Provider protocol tests use
+mocked HTTP, not live paid inference.
 
 The default local HTTP app is still unauthenticated and must remain local-only.
 Use the documented authenticated preview to test the app and SDK. Public hosted startup
@@ -27,6 +29,12 @@ will initially be free; users remain responsible for their provider's model char
 - [Active build specification](SMARTROUTE_BUILD_SPEC.md)
 - [Backend development instructions](backend/README.md)
 - [Frontend development instructions](frontend/README.md)
+- [Single-service Render deployment and environment variables](docs/RENDER_DEPLOYMENT.md)
+
+Render builds the frontend into `backend/static` and serves it from FastAPI with
+working client-page refreshes. Use the repository-root Dockerfile, not separate
+frontend/backend deployments. The default blueprint refuses public startup until
+release approval and runtime database checks pass; do not deploy exposed credentials.
 
 Neon managed authentication owns passwords and sessions. Neon Postgres holds
 workspace profiles, hashed gateway keys, encrypted provider credentials, model

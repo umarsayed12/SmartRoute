@@ -6,9 +6,17 @@ now targets Neon Postgres, managed authentication, private workspaces, and user-
 OpenAI/Anthropic models. `APP_MODE=preview` now mounts authenticated, workspace-scoped
 Neon routes; the default local routes documented below retain SQLite. The preview
 includes key lifecycle, private data reads/feedback/settings, per-workspace
-training, and M3 owned OpenAI/Anthropic inference. `APP_MODE=hosted` remains intentionally
-blocked. Follow the architecture's preview commands, and do not expose either
+training, and M3 owned OpenAI/Anthropic inference. `APP_MODE=hosted` now uses the
+same scoped routes plus the compiled frontend, subject to explicit launch approval
+and runtime database policy checks. Follow the architecture's preview commands, and do not expose either
 development mode publicly. Existing local data is not automatically imported.
+
+For deployment, follow [the Render runbook](../docs/RENDER_DEPLOYMENT.md). The root
+Dockerfile builds both components; `python -m app.serve` binds Render's `PORT` with
+one worker and refuses local/preview mode. Migrations run separately with a direct
+owner connection, never during web startup or with an owner URL in Render. Apply
+`0003_tenant_policies` and the reviewed runtime-role grants before launch. This
+migration has not yet been applied to the live Neon environment by the agent.
 
 ## Authenticated M3 Preview
 

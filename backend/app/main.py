@@ -71,7 +71,7 @@ def client_config() -> dict[str, str | bool | None]:
     return {"mode": "local", "auth_url": None, "inference_enabled": True}
 
 
-if settings.APP_MODE == "preview":
-    from app.hosted.main import create_preview_app
+if settings.APP_MODE in ("preview", "hosted"):
+    from app.hosted.main import create_workspace_app
 
-    app = create_preview_app()
+    app = create_workspace_app(public=settings.APP_MODE == "hosted")

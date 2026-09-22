@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
+from cryptography.fernet import Fernet
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.engine import URL, make_url
@@ -27,6 +28,35 @@ class HostedSettings(BaseSettings):
     NEON_AUTH_AUDIENCE: str = ""
     NEON_AUTH_ALGORITHM: Literal["EdDSA", "RS256", "ES256"] = "EdDSA"
     PROVIDER_ENCRYPTION_KEY: SecretStr = SecretStr("")
+    PUBLIC_BASE_URL: str = ""
+    RENDER_EXTERNAL_URL: str = ""
+    HOSTED_RELEASE_APPROVED: bool = False
+    REQUEST_MAX_BYTES: int = Field(default=524288, ge=4096, le=1048576)
+    REQUEST_TIMEOUT_SECONDS: int = Field(default=180, ge=10, le=300)
+    WORKSPACE_REQUESTS_PER_MINUTE: int = Field(default=120, ge=1, le=600)
+    GLOBAL_REQUESTS_PER_MINUTE: int = Field(default=600, ge=10, le=3000)
+    WORKSPACE_INFERENCES_PER_DAY: int = Field(default=100, ge=1, le=1000)
+    WORKSPACE_HISTORY_LIMIT: int = Field(default=1000, ge=40, le=10000)
+    REQUEST_RETENTION_DAYS: int = Field(default=30, ge=1, le=365)
+
+
+def public_origin(configured: HostedSettings) -> str:
+    """Require an approved HTTPS origin and explicit trusted JWT claims for public hosting."""
+    if not configured.HOSTED_RELEASE_APPROVED:
+        raise ValueError("Public startup is blocked until the deployment checklist is approved with HOSTED_RELEASE_APPROVED=true.")
+    value = (configured.PUBLIC_BASE_URL or configured.RENDER_EXTERNAL_URL).rstrip("/")
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment or parsed.port not in (None, 443):
+        raise ValueError("PUBLIC_BASE_URL must be the canonical HTTPS origin, without a path or credentials.")
+    if not configured.NEON_AUTH_ISSUER or not configured.NEON_AUTH_AUDIENCE:
+        raise ValueError("Public hosting requires explicit verified NEON_AUTH_ISSUER and NEON_AUTH_AUDIENCE.")
+    try:
+        Fernet(configured.PROVIDER_ENCRYPTION_KEY.get_secret_value().encode("ascii"))
+    except (ValueError, UnicodeError):
+        raise ValueError("Configure a valid server-only PROVIDER_ENCRYPTION_KEY.") from None
+    if configured.DATABASE_DIRECT_URL.get_secret_value():
+        raise ValueError("Remove DATABASE_DIRECT_URL from the public runtime; run migrations separately.")
+    return value
 
 
 def database_url(configured: HostedSettings, *, direct: bool = False) -> URL:

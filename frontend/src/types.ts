@@ -5,9 +5,10 @@ export type RunMode = 'auto' | TierName
 export type PlaygroundMode = RunMode | 'compare'
 
 export interface ClientConfig {
-  mode: 'local' | 'preview'
+  mode: 'local' | 'preview' | 'hosted'
   auth_url: string | null
   inference_enabled: boolean
+  retention_days?: number
 }
 
 export interface WorkspaceAccount {

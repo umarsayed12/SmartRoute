@@ -28,6 +28,7 @@ const navigation = [
 export default function App() {
   const auth = useAuth()
   const location = useLocation()
+  const pathname = location.pathname.replace(/\/+$/, '') || '/'
   const [signingOut, setSigningOut] = useState(false)
   const [signOutError, setSignOutError] = useState('')
   const [health, setHealth] = useState<Health | null>(null)
@@ -41,9 +42,9 @@ export default function App() {
   const verified = local || auth.account?.user?.email_verified === true
   const inferenceReady = auth.config.inference_enabled && (local || (verified && hasModels === true))
   const links = local ? navigation : [...navigation, { path: '/models', label: 'Models', icon: Boxes }, { path: '/account', label: 'API Keys', icon: KeyRound }, { path: '/integration', label: 'Integration', icon: Code2 }]
-  const activePage = links.find((item) => item.path === location.pathname) ?? navigation[0]
-  const isPlayground = location.pathname === '/'
-  const isTestLab = location.pathname === '/testlab'
+  const activePage = links.find((item) => item.path === pathname) ?? navigation[0]
+  const isPlayground = pathname === '/'
+  const isTestLab = pathname === '/testlab'
   const [testLabOpened, setTestLabOpened] = useState(isTestLab)
 
   useEffect(() => { document.title = `SmartRoute | ${activePage.label}` }, [activePage.label])
@@ -92,13 +93,13 @@ export default function App() {
           <div><strong>{health ? 'Gateway online' : checking ? 'Connecting' : 'Gateway offline'}</strong><span>{auth.config.mode !== 'local' ? 'Private workspace' : health && !health.ollama ? 'Ollama unavailable' : 'localhost:8000'}</span></div>
           <button type="button" className={styles.refresh} title="Refresh connection" aria-label="Refresh connection" onClick={() => setRevision((value) => value + 1)} disabled={checking}><RefreshCw size={14} className={checking ? styles.spinning : ''} /></button>
         </div>
-        <div className={styles.footer}><span>{auth.config.mode === 'local' ? 'LOCAL WORKSPACE' : 'AUTHENTICATED PREVIEW'}</span><a href="https://github.com/umarsayed12/SmartRoute" target="_blank" rel="noreferrer" aria-label="SmartRoute on GitHub" title="GitHub repository"><ArrowUpRight size={15} /></a></div>
+        <div className={styles.footer}><span>{local ? 'LOCAL WORKSPACE' : auth.config.mode === 'hosted' ? 'PRIVATE WORKSPACE' : 'AUTHENTICATED PREVIEW'}</span><a href="https://github.com/umarsayed12/SmartRoute" target="_blank" rel="noreferrer" aria-label="SmartRoute on GitHub" title="GitHub repository"><ArrowUpRight size={15} /></a></div>
       </div>
     </aside>
     <main id="workspace" className={styles.main}>
       <header className={styles.pageHeader}>
         <div><div className={styles.breadcrumb}>Workspace<ChevronRight size={12} /><span>{activePage.label}</span></div><h1>{activePage.label}</h1></div>
-        <div className={styles.headerActions}><a className={styles.apiLink} href="/docs" target="_blank" rel="noreferrer" title="Backend API reference"><span>API reference</span><ArrowUpRight size={15} /></a>{auth.account && <button type="button" className={styles.refresh} aria-label="Sign out" title="Sign out" disabled={signingOut} onClick={() => { setSigningOut(true); void auth.signOut().catch(() => setSignOutError('Sign-out failed. Try again.')).finally(() => setSigningOut(false)) }}><LogOut size={17} /></button>}</div>
+        <div className={styles.headerActions}>{auth.config.mode !== 'hosted' && <a className={styles.apiLink} href="/docs" target="_blank" rel="noreferrer" title="Backend API reference"><span>API reference</span><ArrowUpRight size={15} /></a>}{auth.account && <button type="button" className={styles.refresh} aria-label="Sign out" title="Sign out" disabled={signingOut} onClick={() => { setSigningOut(true); void auth.signOut().catch(() => setSignOutError('Sign-out failed. Try again.')).finally(() => setSigningOut(false)) }}><LogOut size={17} /></button>}</div>
       </header>
       {signOutError && <div className={styles.authError} role="alert">{signOutError}</div>}
       <div className={styles.stage} hidden={!isPlayground}>
