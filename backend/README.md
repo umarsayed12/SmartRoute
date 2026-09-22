@@ -409,6 +409,41 @@ forced and resolves to medium when no remote large model is configured.
 
 ## Provider Smoke Check
 
+### Approved MAQ Experiment
+
+An explicitly invoked local harness can exercise the existing router against
+`https://llm.maqsoftware.net/v1` with `qwen-3.8-27b` as the test baseline and
+`muse-glimmer-30b` as the next tier. This mapping tests mechanics, not relative
+price or answer quality. It does not add MAQ to hosted workspace configuration.
+
+Put an authorized key in the ignored backend environment file as `MAQ_API_KEY`,
+then run from `backend/`:
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.try_maq_routing
+```
+
+The equivalent VS Code task is `smoke: maq routing`. It runs four harmless
+synthetic cases, permits only the fixed endpoint and two model IDs, caps answer
+output at 512 tokens, and makes at most seven provider calls with no automatic
+retries. It also routes the existing four-token confidence check to the same
+remote model instead of Ollama. Failed/unparseable checks use the existing neutral
+fallback and are visible in the diagnostic output.
+
+Run this harness as a standalone process, never inside a serving API process:
+its temporary adapter/settings overrides are scoped to the test. It writes no
+request history or model configuration and restores overrides on failure. The
+report includes every answer/self-check's reported usage and latency, but no
+dollar or savings estimate because provider prices have not been supplied.
+
+The first live test needed a larger answer budget for Muse to return final text;
+four-token Qwen self-checks still returned no final text. See
+[scripts/maq_smoke_results.md](scripts/maq_smoke_results.md) for the measured result
+and limitations. Provider-aware reasoning/output controls must be addressed before
+these models are considered for hosted confidence routing.
+
+### Local Ollama
+
 After pulling the small model, run from `backend/`:
 
 ```powershell

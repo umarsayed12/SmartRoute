@@ -15,6 +15,7 @@ export default function Account() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [verificationCode, setVerificationCode] = useState('')
   const [name, setName] = useState('Application')
   const [days, setDays] = useState(90)
   const [secret, setSecret] = useState<string | null>(null)
@@ -58,7 +59,14 @@ export default function Account() {
   return <div className={ui.page}>
     <div className={ui.toolbar}><div className={styles.identity}><h2>{auth.account?.workspace.name}</h2><p className={ui.muted}>{auth.account?.user?.email}</p></div><span className={styles.plan}>{auth.account?.workspace.plan} plan</span></div>
     {error && <div className={ui.error} role="alert">{error}</div>}{notice && <p className={ui.success} role="status">{notice}</p>}
-    {!auth.account?.user?.email_verified && <section className={styles.verification}><span>Email verification required for API keys</span><div className={ui.actions}><button type="button" className={ui.button} disabled={busy} onClick={() => void perform(async () => { await auth.sendVerification(); setNotice('Verification email requested.') })}><Mail size={14} />Verify email</button><button type="button" className={ui.button} disabled={busy} onClick={() => void perform(async () => { await auth.refreshAccount() })}><RefreshCw size={14} />Refresh verification</button></div></section>}
+    {!auth.account?.user?.email_verified && <section className={styles.verification} aria-label="Email verification">
+      <span>Email verification required for API keys</span>
+      <form className={styles.verificationForm} onSubmit={(event) => { event.preventDefault(); void perform(async (signal) => { await auth.verifyEmailCode(verificationCode); if (!signal.aborted) { setVerificationCode(''); setNotice('Email verified.') } }) }}>
+        <label className={ui.field}>Verification code<input autoComplete="one-time-code" inputMode="numeric" value={verificationCode} onChange={(event) => setVerificationCode(event.target.value)} maxLength={12} required disabled={busy} /></label>
+        <button type="submit" className={ui.primary} disabled={busy || !verificationCode.trim()}><Check size={14} />Verify code</button>
+      </form>
+      <div className={ui.actions}><button type="button" className={ui.button} disabled={busy} onClick={() => void perform(async (signal) => { await auth.sendVerification(); if (!signal.aborted) setNotice('Verification code requested.') })}><Mail size={14} />Send new code</button><button type="button" className={ui.button} disabled={busy} onClick={() => void perform(async () => { await auth.refreshAccount() })}><RefreshCw size={14} />Refresh verification</button></div>
+    </section>}
     <section className={ui.section}><h2 className={ui.sectionTitle}>Create gateway key</h2><form className={styles.form} onSubmit={(event) => { event.preventDefault(); void perform(async (signal) => { const result = await api.createKey(name.trim(), days, signal); if (!signal.aborted) { setSecret(result.key); setCopied(false); setRevision((value) => value + 1) } }) }}>
       <label className={ui.field}>Key name<input value={name} onChange={(event) => setName(event.target.value)} required maxLength={80} disabled={busy} /></label>
       <label className={ui.field}>Expiration<select value={days} onChange={(event) => setDays(Number(event.target.value))} disabled={busy}>{[7, 30, 90, 365].map((value) => <option key={value} value={value}>{value} days</option>)}</select></label>

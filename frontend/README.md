@@ -49,6 +49,13 @@ managed by Neon's SDK and forwarded in authorization headers. Never put actual
 credentials into screenshots or bug reports. Browser auth tests use synthetic
 credentials; real verification requires entering credentials directly in the browser.
 
+For code-based email verification, open **API Keys**, enter the emailed value in
+**Verification code**, and choose **Verify code**. **Send new code** requests a
+replacement through Neon's email-OTP API. The backend profile is refreshed after
+successful verification; key creation remains disabled until that profile confirms
+the email is verified. Codes stay in component memory and are cleared on success.
+Do not paste verification codes into assistant chat or issue reports.
+
 ## Playground
 
 - Auto, forced small/medium/large, and Compare all modes use the real gateway.

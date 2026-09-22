@@ -90,8 +90,16 @@ export default function AuthGate() {
     refreshAccount: async () => { if (client) await connect(client) },
     sendVerification: async () => {
       if (!client || !account?.user) return
-      const result = await client.sendVerificationEmail({ email: account.user.email, callbackURL: location.origin })
+      const result = await client.emailOtp.sendVerificationOtp({ email: account.user.email, type: 'email-verification' })
       if (result.error) throw new Error(result.error.message || 'Verification email could not be requested.')
+    },
+    verifyEmailCode: async (code) => {
+      if (!client || !account?.user) throw new Error('Sign in before verifying your email.')
+      const result = await client.emailOtp.verifyEmail({ email: account.user.email, otp: code.trim() })
+      if (result.error) throw new Error(result.error.message || 'The verification code was not accepted.')
+      const profile = await api.me()
+      setAccount(profile)
+      if (!profile.user?.email_verified) throw new Error('Verification is still pending. Refresh verification shortly.')
     },
   }}><App key={account?.workspace.id ?? 'local'} /></AuthContext.Provider>
 }

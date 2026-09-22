@@ -17,6 +17,7 @@ export interface AuthState {
   signOut: () => Promise<void>
   refreshAccount: () => Promise<void>
   sendVerification: () => Promise<void>
+  verifyEmailCode: (code: string) => Promise<void>
 }
 
 export const AuthContext = createContext<AuthState | null>(null)

@@ -265,6 +265,13 @@ provider-aware confidence, owned model resolution, and attempt-level metering.
 Reject unconfigured routing and never fall back to a shared owner-funded model.
 Test provider errors, redaction, key replacement, and credential ownership.
 
+An owner-approved local experiment also tested two MAQ-hosted OpenAI-compatible
+models using the fixed `https://llm.maqsoftware.net/v1` endpoint. This exception
+applies only to the standalone smoke-test script; it does not enable arbitrary
+URLs or MAQ credentials in hosted workspaces. Both models returned text at a
+512-token answer limit, but the four-token self-check budget was insufficient
+for Qwen's final rating text. See the [measured smoke report](../backend/scripts/maq_smoke_results.md).
+
 ### M4: Onboarding And SDK
 
 Complete website model setup, key management, Integration instructions, and the
