@@ -1,0 +1,182 @@
+// Mirror the backend's chat, history, statistics, and administration contracts.
+export type TierName = 'small' | 'medium' | 'large'
+export type RoutingMode = 'heuristic' | 'learned' | 'forced'
+export type RunMode = 'auto' | TierName
+export type PlaygroundMode = RunMode | 'compare'
+
+export interface PlaygroundAnswer {
+  mode: RunMode
+  state: 'queued' | 'loading' | 'done' | 'error' | 'cancelled'
+  response?: ChatCompletion
+  error?: string
+}
+
+export interface PlaygroundTurn {
+  id: string
+  prompt: string
+  mode: PlaygroundMode
+  messages: ChatMessage[]
+  answers: PlaygroundAnswer[]
+  selectedMode?: RunMode
+}
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+export interface RoutingInfo {
+  request_id: string
+  tier_chosen: TierName
+  tier_final: TierName
+  escalated: boolean
+  confidence: number
+  reason: string
+  routing_mode: RoutingMode
+  latency_ms: number
+  actual_cost_usd: number
+  reference_cost_usd: number
+}
+
+export interface ChatCompletion {
+  id: string
+  object: 'chat.completion'
+  created: number
+  model: string
+  choices: { index: number; message: ChatMessage; finish_reason: 'stop' | 'length' }[]
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+  smartroute: RoutingInfo
+}
+
+export interface Feedback {
+  request_id: string
+  score: 1 | -1
+  note: string | null
+}
+
+export interface Health {
+  status: string
+  tiers: TierName[]
+  ollama: boolean
+}
+
+export interface Tier {
+  name: TierName
+  provider: 'ollama' | 'openai_compatible'
+  model: string
+  base_url: string
+  input_price_per_1k: number
+  output_price_per_1k: number
+  enabled: boolean
+  reachable: boolean
+}
+
+export interface RuntimeSettings {
+  confidence_threshold: number
+  max_escalations: number
+  reference_input_price_per_1k: number
+  reference_output_price_per_1k: number
+  routing_mode_preference: 'auto' | 'heuristic_only' | 'learned_only'
+}
+
+export interface Page<T> {
+  items: T[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface RequestSummary extends Omit<RoutingInfo, 'request_id'> {
+  id: string
+  created_at: string
+  prompt_preview: string
+  prompt_tokens: number
+  completion_tokens: number
+  feedback: 1 | -1 | null
+  feedback_note: string | null
+  source: 'api' | 'playground' | 'testlab' | 'sdk'
+}
+
+export interface RequestDetail extends RequestSummary {
+  prompt_full: string
+  answer_full: string
+  features_json: string
+}
+
+export interface RequestFilters {
+  limit?: number
+  offset?: number
+  tier?: TierName
+  escalated?: boolean
+  feedback?: -1 | 0 | 1
+  search?: string
+}
+
+export interface Stats {
+  totals: { requests: number; escalations: number; escalation_rate: number }
+  cost: { actual_usd: number; reference_usd: number; saved_usd: number; saved_pct: number }
+  quality: {
+    feedback_count: number
+    positive_rate: number | null
+    by_tier: Record<TierName, { count: number; positive_rate: number | null }>
+  }
+  tier_distribution: Record<TierName, number>
+  latency: Record<TierName, { p50: number | null; p95: number | null }>
+  timeline: { date: string; requests: number; saved_usd: number; positive_rate: number | null }[]
+  routing_modes: Record<RoutingMode, number>
+}
+
+export interface TrainingMetadata {
+  trained: true
+  trained_at: string
+  n_rows: number
+  accuracy: number
+  classes: TierName[]
+  confusion_matrix: number[][]
+  evaluation: 'holdout' | 'training' | null
+}
+
+export type TrainingResult = TrainingMetadata | { trained: false; n_rows: number; message: string }
+export type TrainingStatus = TrainingMetadata | { trained: false }
+
+export interface Suite {
+  id: string
+  name: string
+  count: number
+  tier_distribution: Record<TierName, number>
+  max_tokens: number
+}
+
+export interface RunSummary {
+  routing_accuracy: number
+  escalation_rate: number
+  avg_latency_ms: number
+  total_actual_usd: number
+  total_reference_usd: number
+  saved_pct: number
+}
+
+export interface TestLabRun {
+  run_id: string
+  created_at: string
+  suite: string
+  mode: RunMode
+  prompt_count: number
+  summary: RunSummary
+}
+
+export interface TestLabResult extends TestLabRun {
+  results: {
+    id: string
+    request_id: string
+    prompt: string
+    expected_tier: TierName
+    tier_final: TierName
+    escalated: boolean
+    confidence: number
+    latency_ms: number
+    actual_cost_usd: number
+    reference_cost_usd: number
+    match: boolean
+  }[]
+}

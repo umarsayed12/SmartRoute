@@ -1,0 +1,15 @@
+/* Compact tier indicators used on responses and model status. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 3px 7px;
+  border-radius: 4px;
+  font: 500 11px/1.4 'JetBrains Mono Variable', monospace;
+  text-transform: capitalize;
+}
+.badge span { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.small { color: var(--small); background: rgb(133 221 184 / 10%); }
+.medium { color: var(--medium); background: rgb(232 194 133 / 10%); }
+.large { color: var(--large); background: rgb(223 156 180 / 10%); }

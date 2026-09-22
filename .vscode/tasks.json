@@ -1,4 +1,4 @@
-// Install and test the backend using its isolated Python environment.
+// Run isolated backend checks and frontend production-build and lint validation.
 {
 	"version": "2.0.0",
 	"windows": {
@@ -38,6 +38,23 @@
 				"-r",
 				"backend/requirements.txt"
 			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "build: frontend",
+			"type": "shell",
+			"command": "npm.cmd",
+			"args": ["--prefix", "${workspaceFolder}/frontend", "run", "build"],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "lint: frontend",
+			"type": "shell",
+			"command": "npm.cmd",
+			"args": ["--prefix", "${workspaceFolder}/frontend", "run", "lint"],
 			"isBackground": false,
 			"problemMatcher": []
 		}

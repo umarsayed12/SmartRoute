@@ -1,0 +1,8 @@
+// Connect the frontend and Vite TypeScript build configurations.
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
