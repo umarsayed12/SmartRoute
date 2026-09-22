@@ -2,9 +2,9 @@
 # SmartRoute Backend
 
 FastAPI foundation with environment-driven model tiers and async Ollama and
-OpenAI-compatible providers. Phase 8 includes feedback-driven routing, dashboard
-statistics, model availability checks, persistent runtime settings, and training
-administration alongside chat completions and searchable request history.
+OpenAI-compatible providers. Phase 9 adds a repeatable Test Lab and benchmark
+runner to feedback-driven routing, dashboard statistics, runtime settings,
+training administration, and searchable request history.
 
 ## Setup (Windows PowerShell)
 
@@ -336,6 +336,65 @@ admin training jobs in the same process return HTTP 409. Status returns metadata
 only when the artifact exists and its report is valid; it does not unpickle the
 artifact or claim that a prediction was performed.
 
+## Test Lab And Benchmarks
+
+The built-in `default` suite contains 40 JSONL prompts: 15 small (greetings,
+facts, conversions), 15 medium (coding tasks and explanations), and 10 hard
+(multi-step reasoning, design, and constrained code). Every line is valid JSON;
+the first record's `_comment` field is file-purpose metadata, not another prompt.
+Expected tiers are human-authored routing targets, not verified answer-quality labels.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /v1/testlab/suites` | Available suites, prompt counts, tier distribution, and output limit |
+| `POST /v1/testlab/run` | Run `{suite:"default", mode, limit?}` sequentially |
+| `GET /v1/testlab/runs` | Paginated completed-run summaries (`items`, `total`, `limit`, `offset`) |
+
+Modes are `auto`, `small`, `medium`, and `large`; default is `auto`. `limit` runs
+the first 1-40 prompts, so a short prefix is not representative of the full
+tier mix. All prompts are independent one-message conversations, use the same
+256-token output limit, and pass through the normal chat handler. Successful
+answers are logged with `source="testlab"` before the next prompt starts.
+An overlapping Test Lab run in the same process returns HTTP 409.
+
+Run responses contain `run_id`, metadata, per-prompt `results`, and `summary`.
+Each result includes its suite ID, gateway `request_id`, prompt, expected and
+final tiers, escalation, confidence, latency, costs, and `match`. Summary routing
+accuracy is the fraction where `tier_final == expected_tier`; escalation is a
+fraction, saved cost is a percentage, and latency is average routing milliseconds.
+Matching tiers is not a test of factual correctness. If large is disabled, its
+fallback to medium still counts as a mismatch for prompts labelled large.
+
+Only completed run summaries are saved in `testlab_runs`; full answers remain
+in normal request history. Provider failure stops the run with an error naming
+the failed prompt and the completed count. Already completed requests remain
+logged, but no successful run summary is created. A client/network interruption
+can leave a run outcome uncertain; check run history before retrying.
+
+With the backend and both local models running, execute from `backend/`:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/benchmark.py
+```
+
+This runs the same full suite in auto and large-only modes, prints a Markdown
+comparison, and writes [scripts/benchmark_results.md](scripts/benchmark_results.md).
+The report includes final-tier counts so large-to-medium fallback is visible.
+It compares actual costs to the configured premium reference and does not claim
+equivalent answer quality. The report is written only after both modes succeed.
+
+For a short smoke check or a separate local gateway:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/benchmark.py --limit 2 --base-url http://localhost:8000 --output data/benchmark_smoke.md
+```
+
+The CLI allows the server time to finish a complete suite; individual provider
+timeouts still apply. A full 80-answer comparison can take several minutes or
+longer depending on hardware and model loading. `auto` follows current routing
+preferences, so `learned_only` requires a usable trained model. Large-only is
+forced and resolves to medium when no remote large model is configured.
+
 ## Provider Smoke Check
 
 After pulling the small model, run from `backend/`:
@@ -366,6 +425,8 @@ pagination, concurrent inserts, and full-detail retrieval. Learned-router tests
 cover feedback validation, training safeguards, saved-model loading, replacement,
 fallback, and the complete feedback-to-routing flow. Admin tests cover aggregate
 math, settings persistence and effects, secret redaction, model health, and training
-status/failure handling. Tests use temporary databases, settings, and model files,
+status/failure handling. Test Lab tests cover suite integrity, sequencing, mode
+selection, request logging, summary arithmetic, failed runs, and benchmark output.
+Tests use temporary databases, settings, and model files,
 never the user's request history or trained artifact. VS Code
 also has `install: backend` and `test: backend` tasks, using the same virtual environment.

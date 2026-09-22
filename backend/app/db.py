@@ -1,5 +1,6 @@
 """Persist request details in SQLite and provide filtered reads and feedback helpers."""
 
+import json
 import sqlite3
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -63,6 +64,16 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_requests_created_at
                 ON requests (created_at DESC, id DESC);
+            CREATE TABLE IF NOT EXISTS testlab_runs (
+                run_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                suite TEXT NOT NULL,
+                mode TEXT NOT NULL CHECK (mode IN ('auto', 'small', 'medium', 'large')),
+                prompt_count INTEGER NOT NULL,
+                summary_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_testlab_runs_created_at
+                ON testlab_runs (created_at DESC, run_id DESC);
         """)
 
 
@@ -177,3 +188,32 @@ def rows_for_stats(start_at: str, end_at: str) -> list[dict[str, Any]]:
             (start_at, end_at),
         ).fetchall()
     return [_request_dict(row) for row in rows]
+
+
+def insert_testlab_run(row: Mapping[str, Any]) -> None:
+    """Persist one completed suite's metadata and summary without duplicating answers."""
+    values = dict(row)
+    values["summary_json"] = json.dumps(values.pop("summary"))
+    with _connection() as connection:
+        connection.execute(
+            "INSERT INTO testlab_runs (run_id, created_at, suite, mode, prompt_count, summary_json) "
+            "VALUES (:run_id, :created_at, :suite, :mode, :prompt_count, :summary_json)",
+            values,
+        )
+
+
+def list_testlab_runs(limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    """Return completed run summaries with stable newest-first pagination."""
+    if not 1 <= limit <= 100 or offset < 0:
+        raise ValueError("Limit must be 1-100 and offset must be non-negative.")
+    with _connection() as connection:
+        connection.execute("BEGIN")
+        total = connection.execute("SELECT COUNT(*) FROM testlab_runs").fetchone()[0]
+        rows = connection.execute(
+            "SELECT * FROM testlab_runs ORDER BY created_at DESC, run_id DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+    items = [dict(row) for row in rows]
+    for item in items:
+        item["summary"] = json.loads(item.pop("summary_json"))
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
