@@ -10,8 +10,9 @@ encrypted provider configuration, owned cloud routing, private attempt history,
 settings/stats, and workspace-specific training run in a separate preview app.
 Provider contracts and failures are tested with mocked HTTP; live paid inference
 has not been verified. The source SDK/CLI and web Integration flow are implemented.
-SDK publication and public hosted mode remain
-blocked until the M5 deployment gates are complete.
+SDK 0.1.0 is available on TestPyPI; its clean registry installation is unverified
+because downloads are blocked on the managed development laptop. Production PyPI
+publication and public hosted mode remain pending M5 release/deployment gates.
 
 ## Product Contract
 
@@ -259,7 +260,9 @@ do not put a public proxy in front of this preview.
 | Credential creation/rotation and model configuration | Email-verified owner session only |
 | Model reads, chat and Test Lab execution | Workspace session or gateway key; session inference requires verified email |
 
-The SDK is still unpublished; Integration provides source-checkout installation.
+SDK 0.1.0 is uploaded to TestPyPI only; production PyPI publishing remains pending.
+Integration continues to provide source-checkout installation. The
+[SDK guide](../sdk/README.md#testpypi-preview) documents isolated TestPyPI verification.
 Provider configuration is available in Models. Recovery/signup screens call managed APIs; real email delivery
 and recovery links must be verified in the configured Neon project before deployment.
 
@@ -351,8 +354,9 @@ or automatically rates an unreviewed response.
 SDK unit/CLI tests use synthetic HTTP. An integration test connects the real SDK
 to authenticated backend routes with isolated SQL and mocked provider generation,
 covering new-owner setup, gateway-key chat, feedback, private attempts, cross-user
-denial, and revocation. Wheel/source-distribution builds are local only. Live paid
-inference, package-name availability, PyPI publishing, and public deployment remain
+denial, and revocation. Local wheel/source-distribution builds passed, and 0.1.0
+was manually uploaded to TestPyPI. Clean registry installation remains unverified. Live paid
+inference, production package-name availability, PyPI publishing, and public deployment remain
 M5 checks. See [the SDK guide](../sdk/README.md) for the current source workflow.
 
 ### M5: Public Deployment Gate
@@ -367,6 +371,112 @@ guard only after these gates pass.
 No automatic import of shared local logs is planned. If wanted later, an explicit
 owner-confirmed migration must assign every imported row to one workspace and
 must never assign data based on unverified email addresses.
+
+## Manual SDK Publishing
+
+Run publishing from an organization-approved machine/network with Python 3.11+
+and access to official PyPI hosts. Do not work around managed-device security policy,
+turn off TLS verification, or include backend environment files in transferred artifacts.
+This procedure publishes the Python client, not the gateway service; it neither
+completes M5 nor permits removing the hosted-mode safety guard.
+
+### Prepare The Release
+
+1. Use a reviewed checkout containing the latest SDK documentation and code. Keep
+  production status marked pending until the upload and installation checks succeed.
+2. Create a separate account at <https://pypi.org/account/register/>, verify its
+  email, enable 2FA, and retain recovery codes privately. TestPyPI credentials do
+  not authenticate to production PyPI.
+3. Check <https://pypi.org/project/smartroute-client/>. If another owner controls
+  the name, stop and choose an available distribution name before rebuilding.
+  A 404 is not a reservation or guarantee of availability.
+4. For the first upload, create an Entire account API token in production PyPI
+  account settings. Never paste it into chat, a command argument, a repository,
+  an application environment file, or a screenshot. Enter it only at Twine's
+  hidden prompt. Use a project-scoped token once the project exists.
+5. The commands below target 0.1.0, currently configured in the SDK. An existing
+  TestPyPI 0.1.0 does not prevent the first production 0.1.0 upload. If that version
+  already exists on the destination registry, do not overwrite it: update both
+  `sdk/pyproject.toml` and `sdk/src/smartroute_client/__init__.py`, then use matching
+  versioned artifact paths. Revised artifacts uploaded again to TestPyPI also need
+  a new version there. Do not delete/recreate a release to reuse filenames.
+
+From the reviewed repository root on the approved machine, run each step in order
+and stop at any failure. This isolated release environment needs no backend setup:
+
+```powershell
+python -m venv sdk/.venv
+if ($LASTEXITCODE -ne 0) { throw 'Release environment creation failed.' }
+$Python = (Resolve-Path 'sdk/.venv/Scripts/python.exe').Path
+& $Python -m pip install --index-url https://pypi.org/simple --upgrade build twine 'hatchling>=1.27,<2' pytest 'httpx>=0.27,<1'
+if ($LASTEXITCODE -ne 0) { throw 'Release dependencies failed.' }
+& $Python -m pytest -q -c sdk/pyproject.toml sdk/tests
+if ($LASTEXITCODE -ne 0) { throw 'SDK tests failed.' }
+& $Python -m build sdk --outdir sdk/dist/production-0.1.0 --no-isolation
+if ($LASTEXITCODE -ne 0) { throw 'SDK build failed.' }
+$Artifacts = @(
+   'sdk/dist/production-0.1.0/smartroute_client-0.1.0-py3-none-any.whl',
+   'sdk/dist/production-0.1.0/smartroute_client-0.1.0.tar.gz'
+)
+& $Python -m twine check --strict $Artifacts
+if ($LASTEXITCODE -ne 0) { throw 'Distribution validation failed.' }
+Get-FileHash -Algorithm SHA256 -Path $Artifacts
+```
+
+Inspect the archives before upload: only SDK source, tests, metadata, README, and
+license should be present, never credentials, local databases, employer experiments,
+or backend environment files. Keep a private release record of the reviewed commit
+and hashes. Do not upload stale artifacts with a broad `dist/*` wildcard. If you
+rehearse the rebuilt files on TestPyPI, use a version not already uploaded there
+and promote those same reviewed files to production.
+
+### Upload To Production
+
+Only after the release review and strict Twine checks pass, run this separate command.
+It is a public production upload, not a dry run:
+
+```powershell
+& $Python -m twine upload --repository-url https://upload.pypi.org/legacy/ --username __token__ $Artifacts
+```
+
+Paste the **production PyPI token**, including its `pypi-` prefix, at the hidden
+password/API-token prompt. Do not put the token in the command line or share terminal
+content that contains it. After a successful upload, verify the project owner, version,
+rendered documentation, and both artifact hashes on the production project page.
+Replace and revoke the broad token after creating a project-scoped token.
+
+A partial upload can leave one file published. Inspect the registry and retry only
+the missing original file; do not rebuild a different file under an existing filename
+or use `--skip-existing` to conceal an artifact mismatch.
+
+### Verify As An End User
+
+Use a second clean environment, not an editable SDK checkout. This resolves runtime
+dependencies from production PyPI and performs no inference:
+
+```powershell
+python -m venv sdk/dist/install-check/.venv
+$CheckPython = (Resolve-Path 'sdk/dist/install-check/.venv/Scripts/python.exe').Path
+& $CheckPython -m pip install --index-url https://pypi.org/simple smartroute-client==0.1.0
+if ($LASTEXITCODE -ne 0) { throw 'Production registry installation failed.' }
+& $CheckPython -c 'from smartroute_client import SmartRoute, OwnerSetup, __version__; print(__version__)'
+if ($LASTEXITCODE -ne 0) { throw 'Published SDK import failed.' }
+& $CheckPython -m smartroute_client.cli --help
+if ($LASTEXITCODE -ne 0) { throw 'Published CLI failed.' }
+```
+
+Successful package installation is not a live service acceptance test. Complete
+the [deployed SDK/web checklist](../sdk/README.md#deployment-acceptance) after M5's
+security gates and deployment. The current Integration page uses the web origin;
+serve API routes on that origin or deliberately update its API-root configuration
+for a split deployment. Never point SDK calls at the Neon Auth host or a frontend-only
+SPA. Preserve bearer headers and structured API errors through the proxy, and use
+the same backend/database/workspace for browser and SDK traffic.
+
+After publication is verified, update repository release status and the Integration
+page's install command in a tested checkpoint. The current source-install label is
+intentional until then. Do not claim deployment, live provider compatibility, or
+invoice-exact cost savings based solely on registry publication.
 
 ## Current Reference Documentation
 

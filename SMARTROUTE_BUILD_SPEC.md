@@ -14,7 +14,10 @@
 Current progress: M1-M4 are implemented in an authenticated loopback preview.
 Owned OpenAI/Anthropic routing and audited attempts are connected to the source
 Python SDK/CLI, setup gating, and Integration page. Provider validation is mocked;
-no live paid inference was run. M5 public deployment and publishing remain pending.
+no live paid inference was run. SDK 0.1.0 is uploaded to TestPyPI; clean registry
+installation remains unverified because downloads are blocked on the managed laptop.
+Manual production publishing and deployed SDK/web acceptance are documented in the
+architecture guide. M5 public deployment and production PyPI publishing remain pending.
 
 The detailed architecture, security boundaries, setup, and acceptance criteria are
 in [docs/HOSTED_ARCHITECTURE.md](docs/HOSTED_ARCHITECTURE.md). Follow these checkpoints
