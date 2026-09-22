@@ -45,6 +45,11 @@ without regenerating and validating the lockfile. The headless runtime, applicat
 build, and lint are independently checked; revisit the workaround when the SDK
 dependency graph is corrected upstream.
 
+Recharts' `react-is` peer is an explicit runtime dependency, pinned to the React
+18 version. Keep it in the manifest and lockfile: `legacy-peer-deps` omits peer-only
+entries during clean installs, even when an existing local installation builds.
+Do not externalize it in Vite; the dashboard needs it in the browser bundle.
+
 API key plaintext is shown once in a masked field and discarded on dismissal or
 navigation. It is not written to application localStorage. Session tokens are
 managed by Neon's SDK and forwarded in authorization headers. Never put actual
