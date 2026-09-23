@@ -14,13 +14,15 @@
 Current progress: M1-M4 are implemented in an authenticated loopback preview.
 Owned OpenAI/Anthropic routing and audited attempts are connected to the source
 Python SDK/CLI, setup gating, and Integration page. Provider validation is mocked;
-no live paid inference was run. SDK 0.1.0 is uploaded to TestPyPI; clean registry
-installation remains unverified because downloads are blocked on the managed laptop.
+no live paid inference was run. SDK 0.1.0 is published on production PyPI; both
+published file hashes match the prepared artifacts. Clean registry installation
+remains unverified because downloads are blocked on the managed laptop.
 Manual production publishing and deployed SDK/web acceptance are documented in the
 architecture guide. M5 deployment code is prepared for one Render Docker service,
 with backend-served React, public request controls, tenant-policy migration, and
-restricted runtime-role checks. Live migration/role/auth/provider verification and
-secret rotation remain pending. Deploy and verify first; production PyPI comes afterward.
+restricted runtime-role checks. Live migration 0003_tenant_policies and runtime-role
+readiness checks passed. The owner reports Render is live; complete live auth/provider
+acceptance and confirmation that re-exposed credentials were rotated remain pending.
 
 The detailed architecture, security boundaries, setup, and acceptance criteria are
 in [docs/HOSTED_ARCHITECTURE.md](docs/HOSTED_ARCHITECTURE.md). Follow these checkpoints

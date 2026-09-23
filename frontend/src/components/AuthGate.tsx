@@ -1,6 +1,7 @@
 // Gate workspace rendering on managed authentication while preserving local-prototype mode.
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { LoaderCircle } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { api, setTokenProvider } from '../api'
 import { AuthContext, createManagedAuth, managedAccessToken } from '../auth'
 import type { ManagedAuthClient } from '../auth'
@@ -9,26 +10,34 @@ import App from '../App'
 import AuthScreen from './AuthScreen'
 import styles from '../App.module.css'
 
+const Landing = lazy(() => import('../pages/Landing'))
+
 export default function AuthGate() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const pathname = location.pathname.replace(/\/+$/, '') || '/'
   const [config, setConfig] = useState<ClientConfig | null>(null)
   const [client, setClient] = useState<ManagedAuthClient | null>(null)
   const [account, setAccount] = useState<WorkspaceAccount | null>(null)
+  const [hasManagedSession, setHasManagedSession] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
   const subject = useRef<string | null>(null)
 
-  function clearSession() { subject.current = null; setTokenProvider(null); setAccount(null) }
+  function clearSession() { subject.current = null; setTokenProvider(null); setAccount(null); setHasManagedSession(false) }
 
   async function connect(auth: ManagedAuthClient) {
     const session = await auth.getSession()
     if (session.error) throw new Error(session.error.message || 'Session could not be loaded.')
-    if (!session.data?.session) { clearSession(); return }
+    if (!session.data?.session) { clearSession(); return false }
+    setHasManagedSession(true)
     const userId = session.data.user.id
     subject.current = userId
     setTokenProvider(() => managedAccessToken(auth, userId, clearSession))
     setAccount(await api.me())
     setError('')
+    return true
   }
 
   useEffect(() => {
@@ -47,6 +56,7 @@ export default function AuthGate() {
         const session = await auth.getSession()
         if (!active) return
         if (session.data?.session) {
+          setHasManagedSession(true)
           const userId = session.data.user.id
           subject.current = userId
           setTokenProvider(() => managedAccessToken(auth, userId, clearSession))
@@ -75,8 +85,9 @@ export default function AuthGate() {
   }, [client])
 
   if (loading) return <div className={`${styles.routeLoading} ${styles.boot}`} role="status"><LoaderCircle size={20} />Connecting to workspace</div>
+  if (config && config.mode !== 'local' && !account && !hasManagedSession && pathname === '/') return <Suspense fallback={<div className={`${styles.routeLoading} ${styles.boot}`} role="status">Loading SmartRoute</div>}><Landing /></Suspense>
   if (!config || (config.mode !== 'local' && !client)) return <div className={`${styles.routeLoading} ${styles.boot}`} role="alert">{error || 'Authentication is unavailable.'}<button type="button" onClick={() => { setLoading(true); setError(''); setRevision((value) => value + 1) }}>Retry connection</button></div>
-  if (config.mode !== 'local' && !account && client) return <AuthScreen client={client} connectionError={error} onSignedIn={() => connect(client)} />
+  if (config.mode !== 'local' && !account && client) return <AuthScreen key={pathname} initialMode={pathname === '/sign-up' ? 'signup' : 'login'} client={client} connectionError={error} onSignedIn={async () => { const connected = await connect(client); if (connected && ['/sign-in', '/sign-up', '/reset-password'].includes(pathname)) navigate('/', { replace: true }) }} />
 
   return <AuthContext.Provider value={{
     config, account,
@@ -86,6 +97,7 @@ export default function AuthGate() {
         if (result.error) throw new Error(result.error.message || 'Sign-out failed.')
       }
       clearSession()
+      navigate('/', { replace: true })
     },
     refreshAccount: async () => { if (client) await connect(client) },
     sendVerification: async () => {

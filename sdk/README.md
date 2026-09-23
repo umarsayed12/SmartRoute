@@ -6,14 +6,17 @@ running SmartRoute gateway. Requires Python 3.11+; `httpx` is the only runtime
 dependency. Streaming is not supported. Installing this package does not deploy
 the gateway, supply provider credentials, or create a hosted account.
 
-The 0.1.0 preview is on TestPyPI. Production registry availability and hosted-service
-readiness are separate checks; neither is implied by a successful TestPyPI upload.
+Version **0.1.0 is published on [production PyPI](https://pypi.org/project/smartroute-client/0.1.0/)**.
+Both published file hashes match the locally tested wheel and source distribution.
+Production registry availability and hosted-service readiness are separate checks;
+live provider integration and clean registry installation remain unverified here.
 See the [release procedure](https://github.com/umarsayed12/SmartRoute/blob/main/docs/HOSTED_ARCHITECTURE.md#manual-sdk-publishing)
 for production publishing and the required deployment acceptance checks.
 
 ## TestPyPI Preview
 
 Preview release: <https://test.pypi.org/project/smartroute-client/0.1.0/>.
+This is the earlier rehearsal; ordinary users should use production PyPI below.
 TestPyPI is a separate testing registry, not a production distribution channel;
 its projects may be removed. Installing a public package requires no upload token.
 
@@ -44,10 +47,8 @@ chat attachments, and screenshots. Revoke exposed tokens before using them again
 
 ## Production Installation
 
-Run this only after the maintainer confirms that the version exists under the
-correct owner at <https://pypi.org/project/smartroute-client/>. An absent project
-page does not guarantee that PyPI will accept the name. The current release target
-is 0.1.0; use the actual published version if it changes.
+The production 0.1.0 release was verified through PyPI's JSON API on 2026-09-23.
+Use an approved machine/network with access to the official registry:
 
 ```powershell
 python -m venv .venv
@@ -71,9 +72,8 @@ python -m venv .venv
 ```
 
 On macOS/Linux use `.venv/bin/python` and `.venv/bin/smartroute`. No shell
-activation is required. This is a source install, not a claim that the package
-name is available on production PyPI. Production name availability and publication
-are M5 gates.
+activation is required. Source installation is for development; end users can
+install the published version without cloning this repository.
 
 ## Prepare A Workspace
 
@@ -83,7 +83,7 @@ are M5 gates.
    least one enabled tier with explicit USD input/output prices per 1,000 tokens.
 3. In **API Keys**, create a SmartRoute gateway key and retain its one-time value
    in your application's secret storage. It is not your provider key.
-4. Open **Integration** for the current gateway URL, source-install commands,
+4. Open **Integration** for the current gateway URL, PyPI installation commands,
    Python/CLI examples, active-key count, and SDK request activity.
 
 After public deployment passes its security gates, use the deployed web workspace

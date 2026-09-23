@@ -39,6 +39,19 @@
 .brandDot { color: var(--accent); }
 .navCaption { font: 10px var(--mono); color: #7c8889; padding: 0 13px; margin-bottom: 14px; }
 .navigation { display: grid; gap: 6px; }
+.menuButton, .menuClose { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; padding: 0; border: 1px solid var(--border); border-radius: 5px; background: transparent; color: var(--text); cursor: pointer; }
+.menuButton { display: none; }
+.menuButton:hover, .menuClose:hover:not(:disabled) { background: var(--surface-raised); border-color: var(--border-strong); }
+.menuClose:disabled { opacity: 0.5; cursor: default; }
+.mobileMenu { position: fixed; inset: max(12px, env(safe-area-inset-top)) 12px auto auto; width: min(320px, calc(100vw - 24px)); max-width: none; max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); margin: 0; padding: 0; border: 1px solid var(--border-strong); border-radius: 8px; background: #141719; color: var(--text); box-shadow: 0 16px 48px rgb(0 0 0 / 35%); }
+.mobileMenu[open] { display: flex; flex-direction: column; }
+.mobileMenu::backdrop { background: rgb(0 0 0 / 60%); }
+.mobileMenuHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.mobileMenuHeader h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.mobileNavigation { display: grid; gap: 5px; padding: 12px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.mobileNavigation .navLink { min-height: 46px; font-size: 13px; }
+.mobileConnection { display: flex; align-items: center; gap: 9px; flex-shrink: 0; padding: 10px 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+.mobileConnection .menuClose { margin-left: auto; }
 .navLink { display: flex; align-items: center; gap: 11px; min-height: 42px; padding: 11px 13px; color: #a4adae; font-size: 12px; font-weight: 550; border-radius: 5px; text-decoration: none; border: 1px solid transparent; }
 .navLink:hover { color: var(--text); background: #1c2224; }
 .navActive { color: var(--accent); background: #20302b; border-color: #2b4037; }
@@ -67,6 +80,10 @@
 .apiLink { display: flex; align-items: center; gap: 7px; text-decoration: none; color: var(--muted); font-size: 11px; }
 .apiLink:hover { color: var(--accent); }
 .headerActions { display: flex; align-items: center; gap: 18px; }
+.userIdentity { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 210px; min-height: 36px; text-decoration: none; }
+.avatar { display: grid; place-items: center; flex-shrink: 0; width: 30px; height: 30px; border: 1px solid #365247; border-radius: 50%; background: #20302b; color: var(--accent); font: 10px var(--mono); }
+.userName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.userIdentity:hover { color: var(--accent); }
 .authError { padding: 12px 30px; color: var(--danger); font-size: 12px; }
 .stage { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .routeLoading { display: grid; place-items: center; flex: 1; color: var(--muted); font-size: 12px; padding: 30px; }
@@ -81,14 +98,16 @@
   .brand { margin: 0; padding: 0; gap: 7px; font-size: 16px; }
   .brandMark { width: 28px; height: 28px; }
   .brandMark svg { width: 19px; }
-  .navCaption, .sidebarBottom { display: none; }
-  .navigation { display: flex; gap: 2px; }
-  .navLink { min-height: 34px; width: 35px; padding: 7px; justify-content: center; }
-  .navLink > span { display: none; }
+  .navCaption, .sidebarBottom, .sidebar > .navigation { display: none; }
+  .menuButton { display: grid; }
   .main { width: 100%; height: calc(100dvh - 60px); margin-left: 0; }
   .pageHeader { padding: 17px 20px; min-height: 88px; }
   .pageHeader h1 { font-size: 22px; }
+  .pageHeader > div:first-child { min-width: 0; }
+  .pageHeader h1 { overflow-wrap: anywhere; }
+  .headerActions { gap: 8px; }
+  .userIdentity { max-width: 110px; gap: 6px; }
+  .userName { font-size: 11px; }
   .apiLink span { display: none; }
 }
-@media (max-width: 359px) { .brand > span:last-child { display: none; } }
 @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }

@@ -1,6 +1,6 @@
 /* Focused managed-login form matching the existing local workspace design. */
 .page { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100dvh; padding: 30px 18px; background-image: linear-gradient(#ffffff03 1px, transparent 1px), linear-gradient(90deg, #ffffff03 1px, transparent 1px); background-size: 38px 38px; }
-.brand { display: flex; align-items: center; gap: 10px; font-size: 26px; font-weight: 750; margin-bottom: 30px; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 26px; font-weight: 750; margin-bottom: 30px; text-decoration: none; }
 .brand > span { display: grid; place-items: center; width: 41px; height: 41px; border-radius: 8px; color: #123b2b; background: var(--accent); }
 .panel { width: min(100%, 420px); padding: 30px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .eyebrow, .preview { font: 10px var(--mono); color: var(--muted); }

@@ -5,8 +5,8 @@
 The default backend retains the local prototype. An authenticated preview adds
 managed login/signup/recovery, a private workspace, sign-out, and API-key creation
 and revocation, encrypted provider credentials, and owned model configuration/routing.
-M4 adds setup gating and an Integration page for the source SDK/CLI. Public deployment
-and registry publication remain M5 work in the
+M4 adds setup gating and an Integration page for the SDK/CLI. SDK 0.1.0 is now
+published on production PyPI; live hosted acceptance remains M5 work in the
 [hosted architecture plan](../docs/HOSTED_ARCHITECTURE.md). Neither development
 mode is a public-production deployment.
 
@@ -63,6 +63,25 @@ successful verification; key creation remains disabled until that profile confir
 the email is verified. Codes stay in component memory and are cleared on success.
 Do not paste verification codes into assistant chat or issue reports.
 
+## Public Entry And Identity
+
+Signed-out visitors to `/` see the public landing page, with local product screenshots,
+platform details, SDK installation, and sign-in/signup actions. `/sign-in` and
+`/sign-up` are refreshable backend-served SPA routes. A signed-in session bypasses
+the landing page, protected links preserve their destination through login, and
+explicit sign-out returns to the public root. Local-prototype mode remains unchanged.
+Managed password recovery continues to use `/reset-password`.
+
+Product screenshots in `public/screenshots/` capture the real UI with synthetic
+demo data, never private accounts or keys. Their metrics are illustrative, not
+benchmarks. The gallery supports keyboard tabs and a dismissible full-size view;
+the page respects reduced motion and uses bundled assets rather than external images.
+
+The workspace header shows the server-provided display name and avatar initials,
+falling back to the email prefix when needed. Long names are bounded on mobile,
+while the account link retains the full accessible name. Mobile navigation uses
+a labeled hamburger dialog; the desktop sidebar is preserved.
+
 ## Workspace Models
 
 In authenticated preview, verified owners use **Models** to save an official
@@ -93,10 +112,11 @@ verification, ownership, model configuration, and capacity.
 
 **Integration** shows email/model readiness, active unexpired/unrevoked gateway-key
 count, and SDK request activity, with links to the owning pages. Copy controls provide
-the same-origin gateway URL and source-install/client examples for Python or CLI,
+the same-origin gateway URL and production PyPI/client examples for Python or CLI,
 with PowerShell/Bash commands. No actual gateway/provider key or session token is
 embedded in snippets. Keys are still created and displayed once only in API Keys.
-The page explicitly marks the SDK as unpublished and never suggests a registry install.
+The page pins the verified `smartroute-client==0.1.0` release and links its PyPI page.
+No source checkout is needed for the published client.
 
 ## Playground
 

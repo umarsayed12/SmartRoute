@@ -9,7 +9,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
 WEB_DIRECTORY = Path(__file__).resolve().parents[1] / "static"
-PAGE_ROUTES = {"", "dashboard", "requests", "testlab", "settings", "models", "account", "integration", "reset-password"}
+PAGE_ROUTES = {"", "dashboard", "requests", "testlab", "settings", "models", "account", "integration", "reset-password", "sign-in", "sign-up"}
 
 
 class FrontendFiles(StaticFiles):

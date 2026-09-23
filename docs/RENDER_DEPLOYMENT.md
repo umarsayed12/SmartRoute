@@ -1,11 +1,12 @@
 <!-- Deploy the compiled frontend and authenticated API as one gated Render Docker service. -->
 # Render Deployment
 
-Deploy the web app first; production PyPI publishing comes afterward. The repository
-now contains the single-service deployment code, but **the service has not been
-deployed or certified against live Neon/provider accounts**. Previously exposed
-credentials have not yet been rotated. Keep release approval disabled until the
-preparation steps below are complete.
+The owner reports the Render service is live, and SDK 0.1.0 is now published on
+production PyPI. Live Neon migration/runtime-role checks passed, but **the full
+deployed auth/recovery/provider workflow has not been certified**. Credentials were
+reattached after reported rotation; replacement of all re-exposed values is still
+unconfirmed. New deployments must complete the preparation steps below before
+enabling release approval.
 
 ## What Runs
 
@@ -15,7 +16,8 @@ and the authenticated API on Render's `PORT`. No second frontend service, Vite
 development server, Ollama installation, or Jinja template engine is needed.
 
 The server returns the SPA shell for `/`, `/dashboard`, `/requests`, `/testlab`,
-`/settings`, `/models`, `/account`, `/integration`, and `/reset-password`, including direct navigation
+`/settings`, `/models`, `/account`, `/integration`, `/sign-in`, `/sign-up`, and
+`/reset-password`, including direct navigation
 and browser refresh. Unknown API routes and missing assets stay 404; they never
 receive the SPA HTML. Hashed assets are cacheable, HTML is revalidated, and API
 responses are not cached. Add future client page routes to `app.web.PAGE_ROUTES`.
@@ -67,8 +69,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Migration failed.' }
 .\.venv\Scripts\python.exe -m app.hosted.migrate check
 ```
 
-The expected new head is `0003_tenant_policies`. This migration is provided in the
-repository but **has not been applied to the live Neon database by the agent**.
+The required head is `0003_tenant_policies`. At the owner's explicit request this
+migration was applied to the configured Neon database, and the restricted runtime
+connection passed the startup checks. Other branches must be prepared separately.
 It enables workspace row policies for provider credentials, models, settings,
 requests, attempts, Test Lab runs, and classifiers. Existing columns/data are retained.
 
@@ -133,6 +136,11 @@ Either import the root [render.yaml](../render.yaml) as a Render Blueprint, or c
 Do not set Root Directory to `backend`; Docker needs both frontend and backend
 sources. Do not add a Render static-site `/* -> /index.html` rewrite. FastAPI already
 handles the page routes and preserves API status codes.
+
+Signed-out visitors see the public landing page at the root; signed-in sessions
+enter their workspace without that page. Product screenshot assets contain only
+illustrative demo data. After deploying, also test sign-in/signup deep links,
+password recovery, sign-out to the landing page, and the user name in the header.
 
 The Blueprint intentionally sets `HOSTED_RELEASE_APPROVED=false`. Initial startup
 will fail closed until preparation is complete; this is not a missing-port bug.

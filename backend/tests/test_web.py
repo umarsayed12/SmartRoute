@@ -35,6 +35,8 @@ async def test_spa_refresh_and_api_boundaries(tmp_path: Path) -> None:
         assert (await client.get("/v1/example")).json() == {"ok": True}
         reset = await client.get("/reset-password?token=synthetic-reset-token")
         assert reset.status_code == 200 and "SmartRoute shell" in reset.text
+        for auth_path in ("/sign-in", "/sign-up/"):
+            assert (await client.get(auth_path)).status_code == 200
         asset = await client.get("/assets/app-hashed.js")
         assert asset.status_code == 200 and "immutable" in asset.headers["cache-control"]
 

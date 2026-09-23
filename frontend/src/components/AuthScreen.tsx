@@ -1,14 +1,15 @@
 // Delegate password and email recovery flows to Neon without storing credentials in the app.
 import { useEffect, useState } from 'react'
 import { ArrowRight, LoaderCircle, Route } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import type { ManagedAuthClient } from '../auth'
 import styles from './AuthScreen.module.css'
 
-interface Props { client: ManagedAuthClient; onSignedIn: () => Promise<void>; connectionError: string }
+interface Props { client: ManagedAuthClient; onSignedIn: () => Promise<void>; connectionError: string; initialMode?: 'login' | 'signup' }
 
-export default function AuthScreen({ client, onSignedIn, connectionError }: Props) {
+export default function AuthScreen({ client, onSignedIn, connectionError, initialMode = 'login' }: Props) {
   const resetToken = new URLSearchParams(location.search).get('token')
-  const [mode, setMode] = useState<'login' | 'signup' | 'recover' | 'reset'>(location.pathname.replace(/\/+$/, '') === '/reset-password' && resetToken ? 'reset' : 'login')
+  const [mode, setMode] = useState<'login' | 'signup' | 'recover' | 'reset'>(location.pathname.replace(/\/+$/, '') === '/reset-password' && resetToken ? 'reset' : initialMode)
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
@@ -51,7 +52,7 @@ export default function AuthScreen({ client, onSignedIn, connectionError }: Prop
   }
 
   return <main className={styles.page}>
-    <div className={styles.brand}><span><Route size={25} /></span>SmartRoute.</div>
+    <Link to="/" className={styles.brand} aria-label="SmartRoute home"><span><Route size={25} /></span>SmartRoute.</Link>
     <section className={styles.panel}>
       <span className={styles.eyebrow}>PRIVATE WORKSPACE</span>
       <h1>{mode === 'signup' ? 'Create your account' : mode === 'recover' ? 'Recover your account' : mode === 'reset' ? 'Set a new password' : 'Welcome back'}</h1>

@@ -4,20 +4,22 @@
 Approved on 2026-09-22. This document supersedes the original single-workspace
 deployment assumptions. The original Phases 1-11 remain a working local prototype.
 
-**Current checkpoint: M5 Render deployment preparation.** Neon migrations through
-`0002_owned_inference` are applied. Managed sign-in, owner workspaces, gateway keys,
+**Current checkpoint: M5 published SDK and hosted acceptance.** Neon migrations through
+`0003_tenant_policies` are applied and the restricted runtime role passed the live
+database readiness checks. Managed sign-in, owner workspaces, gateway keys,
 encrypted provider configuration, owned cloud routing, private attempt history,
 settings/stats, and workspace-specific training run in a separate preview app.
 Provider contracts and failures are tested with mocked HTTP; live paid inference
 has not been verified. The source SDK/CLI and web Integration flow are implemented.
-SDK 0.1.0 is available on TestPyPI; its clean registry installation is unverified
-because downloads are blocked on the managed development laptop. Production PyPI
-publication and actual public deployment remain pending M5 release/deployment gates.
+SDK 0.1.0 is published on production PyPI; both file hashes match the tested artifacts.
+Clean registry installation is unverified because downloads are blocked on the managed
+development laptop. The owner reports Render is live; full live authentication,
+recovery, provider inference, and secret-rotation acceptance remain unverified.
 The new Render Docker setup serves the built React frontend and authenticated API
-on one origin. Migration `0003_tenant_policies` is written but not applied to live
-Neon; runtime-role verification and explicit release approval gate public startup.
+on one origin. Runtime-role verification and explicit release approval still gate
+public startup; publication does not disable those controls.
 Follow [the Render runbook](RENDER_DEPLOYMENT.md) for variables, rotation, grants,
-retention, limitations, and launch verification. Deploy first, then publish to PyPI.
+retention, limitations, and remaining live verification.
 
 ## Product Contract
 
@@ -27,8 +29,8 @@ owns one private workspace. At least one enabled model must be configured before
 chat or Test Lab runs are accepted. There are no shared hosted Ollama defaults.
 
 The website provides login, model configuration, request inspection, feedback,
-statistics, training controls, and an Integration page. Integration shows source
-checkout installation, never a registry install before publication. One-time
+statistics, training controls, and an Integration page. Integration shows installation
+of the verified production PyPI release. One-time
 gateway keys appear only in API Keys and are never embedded in Integration examples.
 
 The SDK calls the backend, not the browser app. Its API key identifies a workspace.
@@ -265,9 +267,9 @@ do not put a public proxy in front of this preview.
 | Credential creation/rotation and model configuration | Email-verified owner session only |
 | Model reads, chat and Test Lab execution | Workspace session or gateway key; session inference requires verified email |
 
-SDK 0.1.0 is uploaded to TestPyPI only; production PyPI publishing remains pending.
-Integration continues to provide source-checkout installation. The
-[SDK guide](../sdk/README.md#testpypi-preview) documents isolated TestPyPI verification.
+SDK 0.1.0 is published on production PyPI after the earlier TestPyPI rehearsal.
+Integration provides the pinned PyPI install command. The
+[SDK guide](../sdk/README.md#production-installation) documents end-user installation.
 Provider configuration is available in Models. Recovery/signup screens call managed APIs; real email delivery
 and recovery links must be verified in the configured Neon project before deployment.
 
@@ -352,7 +354,7 @@ use environment-based gateway credentials rather than secret command-line flags.
 The web app gates inference on verified email and at least one enabled owned model.
 Model changes refresh readiness immediately; transient polling errors do not clear
 an existing conversation. Integration links verification, model setup, gateway keys,
-and SDK activity, and provides secret-free source-install and Python/CLI examples.
+and SDK activity, and now provides secret-free PyPI-install and Python/CLI examples.
 Gateway keys remain one-time displays on API Keys. No example embeds a real secret
 or automatically rates an unreviewed response.
 
@@ -360,9 +362,9 @@ SDK unit/CLI tests use synthetic HTTP. An integration test connects the real SDK
 to authenticated backend routes with isolated SQL and mocked provider generation,
 covering new-owner setup, gateway-key chat, feedback, private attempts, cross-user
 denial, and revocation. Local wheel/source-distribution builds passed, and 0.1.0
-was manually uploaded to TestPyPI. Clean registry installation remains unverified. Live paid
-inference, production package-name availability, PyPI publishing, and public deployment remain
-M5 checks. See [the SDK guide](../sdk/README.md) for the current source workflow.
+was manually uploaded to TestPyPI and then production PyPI. Production artifact
+hashes match the prepared release. Clean registry installation and live paid
+inference remain unverified. See [the SDK guide](../sdk/README.md) for the current workflow.
 
 ### M5: Public Deployment Gate
 
@@ -386,6 +388,14 @@ owner-confirmed migration must assign every imported row to one workspace and
 must never assign data based on unverified email addresses.
 
 ## Manual SDK Publishing
+
+**Release record:** production `smartroute-client==0.1.0` was verified on 2026-09-23.
+Wheel SHA-256: `3410a3b3b3e658056aa62d0f745068071a1e4be1cba590ea243e22ef30add9cf`.
+Source SHA-256: `cc7f5931046a08101738f996934b7cac8d464b0733cac6692c0bf68761116f48`.
+The procedure below records the first release. For a changed release, increment
+both version declarations and update every artifact path before running it again.
+Do not rebuild and attempt to overwrite 0.1.0. Repository documentation updates
+do not change the already-published package's README; they ship in a future release.
 
 Run publishing from an organization-approved machine/network with Python 3.11+
 and access to official PyPI hosts. Do not work around managed-device security policy,
@@ -486,9 +496,8 @@ for a split deployment. Never point SDK calls at the Neon Auth host or a fronten
 SPA. Preserve bearer headers and structured API errors through the proxy, and use
 the same backend/database/workspace for browser and SDK traffic.
 
-After publication is verified, update repository release status and the Integration
-page's install command in a tested checkpoint. The current source-install label is
-intentional until then. Do not claim deployment, live provider compatibility, or
+The repository release status and Integration installation command now reflect the
+verified production release. Do not claim deployment, live provider compatibility, or
 invoice-exact cost savings based solely on registry publication.
 
 ## Current Reference Documentation

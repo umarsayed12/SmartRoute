@@ -11,12 +11,13 @@ usage, estimated cost, feedback, and routing decisions for that workspace.
 the Playground, Dashboard, Requests, Test Lab, and Settings. An authenticated
 loopback preview now supports Neon login, private workspaces, gateway-key management,
 encrypted OpenAI/Anthropic credentials, owned model routing, and private attempt-level
-history. M4 adds the source Python SDK/CLI, setup gating, and Integration page.
-SDK 0.1.0 is uploaded to TestPyPI; clean registry installation is unverified on the
-managed development laptop. M5 now includes a gated single-service Render build;
-secret rotation, live database/auth/provider checks, and deployment remain pending.
-Production PyPI publishing comes after deployment. Provider protocol tests use
-mocked HTTP, not live paid inference.
+history. M4 adds the Python SDK/CLI, setup gating, and Integration page.
+SDK **0.1.0 is published on production PyPI**; the published wheel and source hashes
+match the locally tested artifacts. Neon migration `0003_tenant_policies` and the
+restricted runtime database checks passed. The owner reports the Render service is
+live; complete live authentication/recovery/provider validation remains pending.
+Clean registry installation is unverified on the managed development laptop.
+Provider protocol tests use mocked HTTP, not live paid inference.
 
 The default local HTTP app is still unauthenticated and must remain local-only.
 Use the documented authenticated preview to test the app and SDK. Public hosted startup
@@ -63,12 +64,11 @@ cover completed requests only and are not a provider invoice. See the
 
 ## Python Client
 
-The Python client is available from this checkout and as a
-[0.1.0 TestPyPI preview](https://test.pypi.org/project/smartroute-client/0.1.0/),
-**not yet from production PyPI**:
+Install the [published Python 3.11+ client](https://pypi.org/project/smartroute-client/0.1.0/)
+in your application's environment:
 
 ```powershell
-python -m pip install ./sdk
+python -m pip install --index-url https://pypi.org/simple smartroute-client==0.1.0
 ```
 
 Use a workspace gateway key, not a provider key. The web **Integration** page
@@ -76,7 +76,7 @@ provides the current gateway URL and secret-safe examples. See the
 [SDK guide](sdk/README.md) for Python, CLI, owner setup, and local build instructions.
 
 Maintainers can follow the [manual production publishing procedure](docs/HOSTED_ARCHITECTURE.md#manual-sdk-publishing)
-on an approved machine/network. For end users of the future deployed service, the
+on an approved machine/network. For end users of the deployed service, the
 SDK needs the canonical HTTPS gateway URL and their own workspace gateway key,
 not local backend setup or a PyPI token. See the
 [deployment acceptance checklist](sdk/README.md#deployment-acceptance); package
