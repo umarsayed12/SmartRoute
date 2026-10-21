@@ -27,6 +27,7 @@ will initially be free; users remain responsible for their provider's model char
 ## Architecture And Setup
 
 - [Hosted architecture and migration checkpoints](docs/HOSTED_ARCHITECTURE.md)
+- [Machine learning router architecture](docs/MACHINE_LEARNING_ROUTER.md)
 - [Active build specification](SMARTROUTE_BUILD_SPEC.md)
 - [Backend development instructions](backend/README.md)
 - [Frontend development instructions](frontend/README.md)
