@@ -9,7 +9,7 @@ from app.hosted import providers
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider", ["openai", "anthropic"])
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "groq"])
 @pytest.mark.parametrize("temperature", [0.2, 2.0, None])
 async def test_provider_contracts(provider: str, temperature: float | None) -> None:
     """Preserve text and usage while translating system prompts for native Anthropic."""
@@ -21,8 +21,9 @@ async def test_provider_contracts(provider: str, temperature: float | None) -> N
             assert "temperature" not in payload
         else:
             assert payload["temperature"] == (min(temperature, 1.0) if provider == "anthropic" else temperature)
-        if provider == "openai":
-            assert str(request.url) == "https://api.openai.com/v1/chat/completions"
+        if provider in ("openai", "groq"):
+            expected_url = "https://api.groq.com/openai/v1/chat/completions" if provider == "groq" else "https://api.openai.com/v1/chat/completions"
+            assert str(request.url) == expected_url
             assert request.headers["authorization"] == "Bearer synthetic-key"
             assert payload["max_completion_tokens"] == 100
             assert payload["messages"][0]["role"] == "system"
@@ -77,6 +78,18 @@ async def test_model_probe_cannot_change_origin() -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
         assert await providers.reachable(client, "openai", "https://other.example/model", "synthetic-key")
     assert calls[0].host == "api.openai.com"
+
+
+@pytest.mark.asyncio
+async def test_groq_model_probe_preserves_slashes() -> None:
+    """Groq model IDs with slashes like openai/gpt-oss-120b must preserve the slash."""
+    calls = []
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(200, json={"id": "openai/gpt-oss-120b"})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        assert await providers.reachable(client, "groq", "openai/gpt-oss-120b", "gsk_test")
+    assert calls[0] == "https://api.groq.com/openai/v1/models/openai/gpt-oss-120b"
 
 
 @pytest.mark.asyncio

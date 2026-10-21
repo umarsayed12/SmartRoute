@@ -39,7 +39,7 @@ def encrypt_provider_key(
     configured: HostedSettings, workspace_id: UUID, provider: str, api_key: str
 ) -> bytes:
     """Encrypt a provider key together with its owning workspace and provider identity."""
-    if provider not in ("openai", "anthropic") or not api_key.strip():
+    if provider not in ("openai", "anthropic", "groq") or not api_key.strip():
         raise ValueError("A supported provider and nonempty key are required.")
     payload = json.dumps({"workspace_id": str(workspace_id), "provider": provider, "api_key": api_key})
     return _cipher(configured).encrypt(payload.encode("utf-8"))

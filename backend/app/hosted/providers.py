@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 import httpx
 
-ROOTS = {"openai": "https://api.openai.com/v1", "anthropic": "https://api.anthropic.com/v1"}
+ROOTS = {"openai": "https://api.openai.com/v1", "anthropic": "https://api.anthropic.com/v1", "groq": "https://api.groq.com/openai/v1"}
 
 
 class ProviderFailure(RuntimeError):
@@ -48,7 +48,7 @@ async def chat(
     if provider not in ROOTS:
         raise ProviderFailure("unsupported_provider")
     root = ROOTS[provider]
-    if provider == "openai":
+    if provider in ("openai", "groq"):
         url = f"{root}/chat/completions"
         headers = {"Authorization": f"Bearer {api_key}"}
         payload = {"model": model, "messages": messages, "temperature": temperature, "max_completion_tokens": max_tokens, "stream": False}
@@ -72,7 +72,7 @@ async def chat(
         response.raise_for_status()
         data = response.json()
         usage = data["usage"]
-        if provider == "openai":
+        if provider in ("openai", "groq"):
             content = data["choices"][0]["message"].get("content") or ""
             prompt_tokens = _count(usage["prompt_tokens"])
             completion_tokens = _count(usage["completion_tokens"])
@@ -104,9 +104,9 @@ async def reachable(client: httpx.AsyncClient, provider: str, model: str, api_ke
     """Probe only the fixed provider's model endpoint without generating tokens."""
     if provider not in ROOTS:
         return False
-    headers = {"Authorization": f"Bearer {api_key}"} if provider == "openai" else {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+    headers = {"Authorization": f"Bearer {api_key}"} if provider in ("openai", "groq") else {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
     try:
-        response = await client.get(f"{ROOTS[provider]}/models/{quote(model, safe='')}", headers=headers, follow_redirects=False, timeout=5)
+        response = await client.get(f"{ROOTS[provider]}/models/{quote(model, safe='/')}", headers=headers, follow_redirects=False, timeout=5)
         response.raise_for_status()
         return response.json().get("id") == model
     except (httpx.HTTPError, ValueError, AttributeError):

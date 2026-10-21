@@ -191,3 +191,22 @@ def test_unsupported_conversations_are_rejected(messages: list[dict[str, object]
     """Do not silently drop unsupported message fields or accept unbounded conversations."""
     with pytest.raises(ValidationError):
         HostedChatRequest(model="smartroute/auto", messages=messages)
+
+
+@pytest.mark.asyncio
+async def test_owned_groq_routing(store: WorkspaceStore, configured: HostedSettings) -> None:
+    """Groq models can be configured for tiers and routed through the cloud gateway."""
+    actor = _actor(store, "groq-user")
+    _model(store, actor, configured, "small", "groq")
+    calls = []
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(200, json={
+            "model": "test-small",
+            "choices": [{"message": {"content": "Groq answer."}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 15, "completion_tokens": 5}
+        })
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        response = await route_and_log(actor, store, configured, client, HostedChatRequest(model="smartroute/small", messages=[{"role": "user", "content": "Hello"}]), "sdk")
+    assert response.choices[0].message.content == "Groq answer."
+    assert calls[0] == "https://api.groq.com/openai/v1/chat/completions"

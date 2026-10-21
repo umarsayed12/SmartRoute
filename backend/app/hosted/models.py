@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
-ProviderName = Literal["openai", "anthropic"]
+ProviderName = Literal["openai", "anthropic", "groq"]
 TierName = Literal["small", "medium", "large"]
 
 

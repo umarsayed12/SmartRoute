@@ -60,7 +60,7 @@ provider_credentials = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("workspace_id", "id", name="uq_credentials_workspace_id"),
     UniqueConstraint("workspace_id", "provider", "label", name="uq_credentials_label"),
-    CheckConstraint("provider IN ('openai', 'anthropic')", name="ck_credentials_provider"),
+    CheckConstraint("provider IN ('openai', 'anthropic', 'groq')", name="ck_credentials_provider"),
 )
 
 models = Table(

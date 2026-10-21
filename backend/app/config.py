@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 from threading import RLock
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     ROUTING_MODE_PREFERENCE: Literal["auto", "heuristic_only", "learned_only"] = "auto"
     DB_PATH: Path = Path("data/smartroute.db")
     MODEL_PATH: Path = Path("data/router_model.joblib")
+
+    @field_validator("APP_MODE", "ROUTING_MODE_PREFERENCE", mode="before")
+    @classmethod
+    def clean_settings_strings(cls, value: object) -> object:
+        """Strip surrounding whitespace and lowercase mode strings."""
+        return value.strip().lower() if isinstance(value, str) else value
 
     @property
     def TIERS(self) -> list[Tier]:
