@@ -1,6 +1,6 @@
 // Manage cancellable chat turns and compare independent tier answers before continuing.
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, ArrowUpRight, Braces, GitBranch, Layers3, MessageSquare, RotateCcw, Route, Square, Trash2 } from 'lucide-react'
+import { ArrowUp, ArrowUpRight, Braces, Clock, GitBranch, Layers3, MessageSquare, RotateCcw, Route, Square, Trash2 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import type { ChatCompletion, ChatMessage, PlaygroundAnswer, PlaygroundMode, PlaygroundTurn, RunMode, Tier } from '../types'
@@ -31,6 +31,39 @@ export default function Playground({ tiers, tierError, visible }: Props) {
   const [history, setHistory] = useState<ChatMessage[]>([])
   const [busy, setBusy] = useState(false)
   const [choice, setChoice] = useState<string | null>(null)
+
+  const PLAYGROUND_STORAGE_KEY = 'smartroute_playground_session'
+  const PLAYGROUND_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours (1 day TTL)
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PLAYGROUND_STORAGE_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed.timestamp === 'number' && Date.now() - parsed.timestamp < PLAYGROUND_TTL_MS) {
+        if (Array.isArray(parsed.turns) && parsed.turns.length) setTurns(parsed.turns)
+        if (Array.isArray(parsed.history) && parsed.history.length) setHistory(parsed.history)
+      } else {
+        localStorage.removeItem(PLAYGROUND_STORAGE_KEY)
+      }
+    } catch {
+      localStorage.removeItem(PLAYGROUND_STORAGE_KEY)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (turns.length > 0 || history.length > 0) {
+      try {
+        localStorage.setItem(PLAYGROUND_STORAGE_KEY, JSON.stringify({
+          timestamp: Date.now(),
+          turns,
+          history,
+        }))
+      } catch {
+        // storage quota exceeded or disabled
+      }
+    }
+  }, [turns, history])
   const active = useRef(false)
   const generation = useRef(0)
   const controller = useRef<AbortController | null>(null)
@@ -120,6 +153,11 @@ export default function Playground({ tiers, tierError, visible }: Props) {
     setHistory([])
     setChoice(null)
     setDraft('')
+    try {
+      localStorage.removeItem(PLAYGROUND_STORAGE_KEY)
+    } catch {
+      // storage unavailable
+    }
     window.requestAnimationFrame(() => input.current?.focus())
   }
 
@@ -141,6 +179,11 @@ export default function Playground({ tiers, tierError, visible }: Props) {
         <TierBadge tier={tier.name} /><span className={!tier.enabled || !tier.reachable ? styles.unavailable : ''}>{tier.enabled ? tier.model : local ? 'Medium fallback' : 'Disabled'}</span>
         {tier.enabled && !tier.reachable && <span className={styles.warningDot} />}
       </div>) : <span className={styles.modelLoading}>{tierError ? 'Tier status unavailable' : local ? 'Checking model availability' : 'No workspace tiers loaded'}</span>}
+    </div>
+
+    <div className={styles.sessionBanner} role="note">
+      <Clock size={13} />
+      <span>Playground session is preserved for 24 hours unless you click Clear chat.</span>
     </div>
 
     <div className={styles.thread} ref={thread} aria-label="Conversation">

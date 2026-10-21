@@ -88,8 +88,13 @@ export default function RequestDrawer({ requestId, onClose, onRated }: Props) {
         <div className={ui.row}><TierBadge tier={record.tier_final} /><span className={ui.muted}>{record.routing_mode}</span>{record.escalated && <span className={styles.escalated}>Escalated</span>}<span className={styles.source}>{record.source}</span></div>
         <dl className={styles.facts}><div><dt>Created</dt><dd>{new Date(record.created_at).toLocaleString()}</dd></div><div><dt>Confidence</dt><dd>{Math.round(record.confidence * 100)}%</dd></div><div><dt>Chosen tier</dt><dd>{record.tier_chosen}</dd></div><div><dt>Routing latency</dt><dd>{formatLatency(record.latency_ms)}</dd></div></dl>
         <section className={ui.section}><h3 className={ui.sectionTitle}>Routing reason</h3><p className={styles.reason}>{record.reason}</p></section>
-        <section className={ui.section}><h3 className={ui.sectionTitle}>Full conversation</h3><pre className={styles.content}>{prettyJSON(record.prompt_full)}</pre></section>
-        <section className={ui.section}><h3 className={ui.sectionTitle}>Full answer</h3><pre className={styles.content}>{record.answer_full}</pre></section>
+        <section className={ui.section}>
+          <h3 className={ui.sectionTitle}>Prompt preview</h3>
+          <p className={styles.reason}>{record.prompt_preview || '(No preview available)'}</p>
+          <p className={ui.muted} style={{ fontSize: '11px', marginTop: '6px' }}>
+            Zero Data Retention active: Raw conversation messages and full completion bodies are not stored on disk.
+          </p>
+        </section>
         <section className={ui.section}><h3 className={ui.sectionTitle}>Cost breakdown</h3><dl className={styles.facts}>
           <div><dt>Actual estimate</dt><dd>{formatCost(record.actual_cost_usd)}</dd></div><div><dt>Reference</dt><dd>{record.status === 'failed' ? 'N/A' : formatCost(record.reference_cost_usd)}</dd></div><div><dt>Saved</dt><dd>{record.status === 'failed' ? 'N/A' : formatCost(record.actual_cost_usd === null ? null : record.reference_cost_usd - record.actual_cost_usd)}</dd></div><div><dt>Input / output tokens</dt><dd>{record.prompt_tokens} / {record.completion_tokens}</dd></div>
         </dl></section>

@@ -50,9 +50,11 @@ def _request(row: Any, *, detail: bool = False) -> dict[str, Any]:
         if name in result and result[name] is not None:
             result[name] = float(result[name])
     if detail:
-        result["prompt_full"] = json.dumps(result.pop("messages"), ensure_ascii=False)
-        result["features_json"] = json.dumps(result.pop("features"))
-        result["answer_full"] = result.pop("answer")
+        result.pop("messages", None)
+        result["prompt_full"] = result.get("prompt_preview", "")
+        result["features_json"] = json.dumps(result.pop("features", {}))
+        result["answer_full"] = ""
+        result.pop("answer", None)
     else:
         for name in ("messages", "features", "answer"):
             result.pop(name, None)
@@ -219,7 +221,7 @@ class WorkspaceStore:
             conditions.append(schema.requests.c.feedback.is_(None) if filters["feedback"] == 0 else schema.requests.c.feedback == filters["feedback"])
         if filters.get("search"):
             escaped = filters["search"].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            conditions.append(or_(cast(schema.requests.c.messages, Text).ilike(f"%{escaped}%", escape="\\"), schema.requests.c.answer.ilike(f"%{escaped}%", escape="\\")))
+            conditions.append(or_(schema.requests.c.prompt_preview.ilike(f"%{escaped}%", escape="\\"), cast(schema.requests.c.messages, Text).ilike(f"%{escaped}%", escape="\\")))
         columns = [column for column in schema.requests.c if column.name not in ("messages", "features", "answer")]
         with self._connection(actor) as connection:
             total = connection.execute(select(func.count()).select_from(schema.requests).where(*conditions)).scalar_one()

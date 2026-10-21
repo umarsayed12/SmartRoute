@@ -197,7 +197,7 @@ async def route_and_log(
     row = {
         "id": request_id, "created_at": created, "status": "failed" if failure else "completed",
         "error_code": failure.code if failure else None, "prompt_preview": " ".join(question.split())[:200],
-        "messages": messages, "answer": result.content if result and not failure else "", "features": features,
+        "messages": [], "answer": "", "features": features,
         "tier_chosen": chosen, "tier_final": model["tier"], "provider": model["provider"],
         "model": result.model if result and not failure else model["model"], "escalated": escalations > 0,
         "confidence": score, "reason": failure.code if failure else reason, "routing_mode": mode,

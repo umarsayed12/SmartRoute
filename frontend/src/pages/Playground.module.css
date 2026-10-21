@@ -77,3 +77,14 @@
 }
 @media (max-width: 380px) { .mode > svg { display: none; } .mode { padding-inline: 7px; } }
 @media (prefers-reduced-motion: reduce) { .turn, .empty { animation: none; } .thread { scroll-behavior: auto; } }
+.sessionBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 16px;
+  background: #141a18;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--muted);
+  font-size: 11px;
+}
