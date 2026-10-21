@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 import { BrainCircuit, Check, LoaderCircle, RefreshCw, RotateCcw, Save, X } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../auth'
+import { useData } from '../data'
 import { formatCost } from '../format'
-import type { Health, RuntimeSettings, Tier, TrainingResult, TrainingStatus } from '../types'
+import type { RuntimeSettings, Tier, TrainingResult } from '../types'
 import DataTable from '../components/DataTable'
 import type { Column } from '../components/DataTable'
 import TierBadge from '../components/TierBadge'
@@ -29,22 +30,29 @@ function parseDraft(draft: Draft): RuntimeSettings {
 
 export default function Settings() {
   const auth = useAuth()
-  const [baseline, setBaseline] = useState<RuntimeSettings | null>(null)
-  const [draft, setDraft] = useState<Draft | null>(null)
-  const [tiers, setTiers] = useState<Tier[]>([])
-  const [health, setHealth] = useState<Health | null>(null)
-  const [status, setStatus] = useState<TrainingStatus | null>(null)
+  const {
+    settings: cachedSettings,
+    trainingStatus: status,
+    settingsLoading,
+    settingsError,
+    refreshSettings,
+    saveSettings: persistSettings,
+    health,
+    tiers,
+    refreshHealthAndTiers,
+  } = useData()
+
+  const [baseline, setBaseline] = useState<RuntimeSettings | null>(cachedSettings)
+  const [draft, setDraft] = useState<Draft | null>(cachedSettings ? makeDraft(cachedSettings) : null)
   const [trainingResult, setTrainingResult] = useState<TrainingResult | null>(null)
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [training, setTraining] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [loadError, setLoadError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [trainError, setTrainError] = useState('')
-  const [revision, setRevision] = useState(0)
   const saveController = useRef<AbortController | null>(null)
   const trainController = useRef<AbortController | null>(null)
+
   const values = draft ? parseDraft(draft) : null
   const valid = Boolean(values && draft &&
     [draft.confidence_threshold, draft.max_escalations, draft.reference_input_price_per_1k, draft.reference_output_price_per_1k].every((value) => value.trim() && Number.isFinite(Number(value))) &&
@@ -54,21 +62,19 @@ export default function Settings() {
   const metadata = status?.trained ? status : null
 
   useEffect(() => () => { saveController.current?.abort(); trainController.current?.abort() }, [])
+
   useEffect(() => {
-    const controller = new AbortController()
-    Promise.allSettled([api.settings(controller.signal), api.tiers(controller.signal), api.health(controller.signal), api.trainingStatus(controller.signal)]).then(([settingsResult, tiersResult, healthResult, statusResult]) => {
-      if (controller.signal.aborted) return
-      if (settingsResult.status === 'fulfilled') { setBaseline(settingsResult.value); setDraft(makeDraft(settingsResult.value)) }
-      else { setBaseline(null); setDraft(null) }
-      setTiers(tiersResult.status === 'fulfilled' ? tiersResult.value : [])
-      setHealth(healthResult.status === 'fulfilled' ? healthResult.value : null)
-      setStatus(statusResult.status === 'fulfilled' ? statusResult.value : null)
-      const failures = [settingsResult, tiersResult, healthResult, statusResult].filter((result) => result.status === 'rejected')
-      if (failures.length) setLoadError('Some gateway settings or status information could not be loaded.')
-      setLoading(false)
-    })
-    return () => controller.abort()
-  }, [revision])
+    if (!cachedSettings) {
+      void refreshSettings()
+    }
+  }, [cachedSettings, refreshSettings])
+
+  useEffect(() => {
+    if (cachedSettings && !dirty) {
+      setBaseline(cachedSettings)
+      setDraft(makeDraft(cachedSettings))
+    }
+  }, [cachedSettings, dirty])
 
   function edit(name: keyof Draft, value: string) {
     setDraft((current) => current ? { ...current, [name]: value } : current)
@@ -76,16 +82,20 @@ export default function Settings() {
     setSaveError('')
   }
 
-  function refresh() { setLoading(true); setLoadError(''); setSaved(false); setRevision((value) => value + 1) }
+  function refresh() {
+    setSaved(false)
+    setSaveError('')
+    void Promise.allSettled([refreshSettings(), refreshHealthAndTiers()])
+  }
 
-  async function saveSettings() {
+  async function handleSaveSettings() {
     if (!values || !valid || !dirty || saveController.current) return
     const controller = new AbortController()
     saveController.current = controller
     setSaving(true)
     setSaveError('')
     try {
-      const result = await api.updateSettings(values, controller.signal)
+      const result = await persistSettings(values)
       if (controller.signal.aborted) return
       setBaseline(result)
       setDraft(makeDraft(result))
@@ -109,10 +119,7 @@ export default function Settings() {
       const result = await api.train(controller.signal)
       if (controller.signal.aborted) return
       setTrainingResult(result)
-      const [latestStatus, latestHealth] = await Promise.allSettled([api.trainingStatus(controller.signal), api.health(controller.signal)])
-      if (controller.signal.aborted) return
-      if (latestStatus.status === 'fulfilled') setStatus(latestStatus.value)
-      if (latestHealth.status === 'fulfilled') setHealth(latestHealth.value)
+      await Promise.allSettled([refreshSettings(), refreshHealthAndTiers()])
     } catch (failure) {
       if (!controller.signal.aborted) setTrainError(failure instanceof Error ? failure.message : 'Training failed.')
     } finally {
@@ -135,14 +142,45 @@ export default function Settings() {
     { name: 'Model file', state: health?.model_file_present ?? null, yes: 'Present', no: 'Not detected' },
   ]
 
+  const displayError = settingsError
+  const showInitialLoader = !draft && settingsLoading
+
   return <div className={ui.page}>
-    <div className={ui.toolbar}><h2>Gateway configuration</h2><button type="button" className={ui.iconButton} aria-label="Refresh settings" title="Refresh settings" disabled={loading || saving || training || dirty} onClick={refresh}><RefreshCw size={15} /></button></div>
-    {loadError && <div className={ui.error} role="alert">{loadError}<button type="button" className={ui.button} disabled={dirty || saving || training} onClick={refresh}>Retry</button></div>}
-    {loading && !draft && <div className={ui.loading} role="status"><LoaderCircle className={ui.spinner} size={20} />Loading configuration</div>}
-    <section><h2 className={ui.sectionTitle}>Model tiers</h2><DataTable rows={tiers} columns={columns} rowKey={(tier) => tier.name} label="Model tier configuration" emptyText={loading ? 'Checking models' : auth.config.mode === 'local' ? 'Tier status unavailable' : 'No models configured'} /></section>
+    <div className={ui.toolbar}>
+      <h2>Gateway configuration</h2>
+      <button
+        type="button"
+        className={ui.iconButton}
+        aria-label="Refresh settings"
+        title="Refresh settings"
+        disabled={settingsLoading || saving || training || dirty}
+        onClick={refresh}
+      >
+        <RefreshCw size={15} className={settingsLoading ? ui.spinner : ''} />
+      </button>
+    </div>
+    {displayError && <div className={ui.error} role="alert">{displayError}<button type="button" className={ui.button} disabled={dirty || saving || training} onClick={refresh}>Retry</button></div>}
+    {showInitialLoader && (
+      <div className={ui.loading} role="status">
+        <LoaderCircle className={ui.spinner} size={20} />
+        <span>Loading configuration</span>
+      </div>
+    )}
+    <section>
+      <h2 className={ui.sectionTitle}>Model tiers</h2>
+      <DataTable
+        rows={tiers}
+        columns={columns}
+        rowKey={(tier) => tier.name}
+        label="Model tier configuration"
+        loading={settingsLoading}
+        loadingText="Checking model tiers..."
+        emptyText={auth.config.mode === 'local' ? 'Tier status unavailable' : 'No models configured'}
+      />
+    </section>
     <div className={styles.configuration}>
-      <section className={ui.section}><h2 className={ui.sectionTitle}>Routing policy</h2>{draft && <form onSubmit={(event) => { event.preventDefault(); void saveSettings() }}>
-        <fieldset className={styles.formFields} disabled={saving || loading}>
+      <section className={ui.section}><h2 className={ui.sectionTitle}>Routing policy</h2>{draft && <form onSubmit={(event) => { event.preventDefault(); void handleSaveSettings() }}>
+        <fieldset className={styles.formFields} disabled={saving || settingsLoading}>
           <label className={ui.field}><span className={styles.rangeLabel}>Confidence threshold <strong>{Math.round(Number(draft.confidence_threshold) * 100)}%</strong></span><input aria-label="Confidence threshold" type="range" min={0} max={1} step={0.01} value={draft.confidence_threshold} onChange={(event) => edit('confidence_threshold', event.target.value)} /></label>
           <label className={ui.field}>Max escalations<input type="number" min={0} step={1} required value={draft.max_escalations} onChange={(event) => edit('max_escalations', event.target.value)} /></label>
           <div className={styles.prices}><label className={ui.field}>Reference input / 1k (USD)<input type="number" min={0} step="any" required value={draft.reference_input_price_per_1k} onChange={(event) => edit('reference_input_price_per_1k', event.target.value)} /></label><label className={ui.field}>Reference output / 1k (USD)<input type="number" min={0} step="any" required value={draft.reference_output_price_per_1k} onChange={(event) => edit('reference_output_price_per_1k', event.target.value)} /></label></div>
@@ -150,11 +188,11 @@ export default function Settings() {
         </fieldset>
         {!valid && <p className={ui.bad}>Use whole-number escalations and non-negative prices.</p>}
         {saveError && <div className={ui.error} role="alert">{saveError}</div>}
-        <div className={ui.actions}><button type="submit" className={ui.primary} disabled={!dirty || !valid || saving || loading}>{saving ? <LoaderCircle className={ui.spinner} size={15} /> : <Save size={15} />}Save settings</button><button type="button" className={ui.button} disabled={!dirty || saving || !baseline} onClick={() => { if (baseline) setDraft(makeDraft(baseline)); setSaved(false); setSaveError('') }}><RotateCcw size={14} />Reset edits</button>{saved ? <span className={ui.success} role="status"><Check size={14} />Settings saved</span> : dirty && <span className={ui.muted}>Unsaved changes</span>}</div>
+        <div className={ui.actions}><button type="submit" className={ui.primary} disabled={!dirty || !valid || saving || settingsLoading}>{saving ? <LoaderCircle className={ui.spinner} size={15} /> : <Save size={15} />}Save settings</button><button type="button" className={ui.button} disabled={!dirty || saving || !baseline} onClick={() => { if (baseline) setDraft(makeDraft(baseline)); setSaved(false); setSaveError('') }}><RotateCcw size={14} />Reset edits</button>{saved ? <span className={ui.success} role="status"><Check size={14} />Settings saved</span> : dirty && <span className={ui.muted}>Unsaved changes</span>}</div>
       </form>}</section>
       <section className={ui.section}><h2 className={ui.sectionTitle}>Health</h2><dl className={styles.health}>{checks.map((check) => <div key={check.name}><dt>{check.name}</dt><dd className={check.state === null ? ui.muted : check.state ? ui.good : ui.bad}>{check.state === null ? 'Unknown' : <>{check.state ? <Check size={14} /> : <X size={14} />}{check.state ? check.yes : check.no}</>}</dd></div>)}{auth.config.retention_days && <div><dt>Request retention</dt><dd>{auth.config.retention_days} days</dd></div>}</dl></section>
     </div>
-    <section className={ui.section}><div className={ui.toolbar}><h2>Learned router</h2><button type="button" className={ui.primary} disabled={training || loading} onClick={() => void retrain()}>{training ? <LoaderCircle className={ui.spinner} size={15} /> : <BrainCircuit size={16} />}{training ? 'Training router' : 'Retrain router'}</button></div>
+    <section className={ui.section}><div className={ui.toolbar}><h2>Learned router</h2><button type="button" className={ui.primary} disabled={training || settingsLoading} onClick={() => void retrain()}>{training ? <LoaderCircle className={ui.spinner} size={15} /> : <BrainCircuit size={16} />}{training ? 'Training router' : 'Retrain router'}</button></div>
       {trainError && <div className={ui.error} role="alert">{trainError}</div>}
       {trainingResult && !trainingResult.trained && <p className={styles.trainingNotice} role="status">{trainingResult.message}</p>}
       {trainingResult?.trained && <p className={ui.success} role="status"><Check size={14} />Training complete</p>}

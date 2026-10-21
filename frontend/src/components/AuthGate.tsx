@@ -7,6 +7,7 @@ import { AuthContext, createManagedAuth, managedAccessToken } from '../auth'
 import type { ManagedAuthClient } from '../auth'
 import type { ClientConfig, WorkspaceAccount } from '../types'
 import App from '../App'
+import { DataProvider } from '../data'
 import AuthScreen from './AuthScreen'
 import styles from '../App.module.css'
 
@@ -89,29 +90,38 @@ export default function AuthGate() {
   if (!config || (config.mode !== 'local' && !client)) return <div className={`${styles.routeLoading} ${styles.boot}`} role="alert">{error || 'Authentication is unavailable.'}<button type="button" onClick={() => { setLoading(true); setError(''); setRevision((value) => value + 1) }}>Retry connection</button></div>
   if (config.mode !== 'local' && !account && client) return <AuthScreen key={pathname} initialMode={pathname === '/sign-up' ? 'signup' : 'login'} client={client} connectionError={error} onSignedIn={async () => { const connected = await connect(client); if (connected && ['/sign-in', '/sign-up', '/reset-password'].includes(pathname)) navigate('/', { replace: true }) }} />
 
-  return <AuthContext.Provider value={{
-    config, account,
-    signOut: async () => {
-      if (client) {
-        const result = await client.signOut()
-        if (result.error) throw new Error(result.error.message || 'Sign-out failed.')
-      }
-      clearSession()
-      navigate('/', { replace: true })
-    },
-    refreshAccount: async () => { if (client) await connect(client) },
-    sendVerification: async () => {
-      if (!client || !account?.user) return
-      const result = await client.emailOtp.sendVerificationOtp({ email: account.user.email, type: 'email-verification' })
-      if (result.error) throw new Error(result.error.message || 'Verification email could not be requested.')
-    },
-    verifyEmailCode: async (code) => {
-      if (!client || !account?.user) throw new Error('Sign in before verifying your email.')
-      const result = await client.emailOtp.verifyEmail({ email: account.user.email, otp: code.trim() })
-      if (result.error) throw new Error(result.error.message || 'The verification code was not accepted.')
-      const profile = await api.me()
-      setAccount(profile)
-      if (!profile.user?.email_verified) throw new Error('Verification is still pending. Refresh verification shortly.')
-    },
-  }}><App key={account?.workspace.id ?? 'local'} /></AuthContext.Provider>
+  return (
+    <AuthContext.Provider
+      value={{
+        config,
+        account,
+        signOut: async () => {
+          if (client) {
+            const result = await client.signOut()
+            if (result.error) throw new Error(result.error.message || 'Sign-out failed.')
+          }
+          clearSession()
+          navigate('/', { replace: true })
+        },
+        refreshAccount: async () => { if (client) await connect(client) },
+        sendVerification: async () => {
+          if (!client || !account?.user) return
+          const result = await client.emailOtp.sendVerificationOtp({ email: account.user.email, type: 'email-verification' })
+          if (result.error) throw new Error(result.error.message || 'Verification email could not be requested.')
+        },
+        verifyEmailCode: async (code) => {
+          if (!client || !account?.user) throw new Error('Sign in before verifying your email.')
+          const result = await client.emailOtp.verifyEmail({ email: account.user.email, otp: code.trim() })
+          if (result.error) throw new Error(result.error.message || 'The verification code was not accepted.')
+          const profile = await api.me()
+          setAccount(profile)
+          if (!profile.user?.email_verified) throw new Error('Verification is still pending. Refresh verification shortly.')
+        },
+      }}
+    >
+      <DataProvider>
+        <App key={account?.workspace.id ?? 'local'} />
+      </DataProvider>
+    </AuthContext.Provider>
+  )
 }

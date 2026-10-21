@@ -1,8 +1,7 @@
 // Display measured gateway savings, routing distribution, feedback, and latency.
 import { useEffect, useState } from 'react'
 import { ArrowUpRight, BrainCircuit, CircleDollarSign, LoaderCircle, MessageSquare, RefreshCw, ThumbsUp } from 'lucide-react'
-import { api } from '../api'
-import type { Stats } from '../types'
+import { useData } from '../data'
 import { formatCost, formatLatency } from '../format'
 import KpiCard from '../components/KpiCard'
 import TierBadge from '../components/TierBadge'
@@ -13,35 +12,60 @@ import ui from './Workspace.module.css'
 import styles from './Dashboard.module.css'
 
 export default function Dashboard() {
+  const { getStats, cachedStats, statsLoading, statsRefreshing, statsError } = useData()
   const [days, setDays] = useState(7)
-  const [revision, setRevision] = useState(0)
-  const [data, setData] = useState<Stats | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    const controller = new AbortController()
-    api.stats(days, controller.signal).then((result) => {
-      if (!controller.signal.aborted) setData(result)
-    }).catch((failure: unknown) => {
-      if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : 'Statistics could not be loaded.')
+    void getStats(days).catch((err) => {
+      setError(err instanceof Error ? err.message : 'Statistics could not be loaded.')
     })
-    return () => controller.abort()
-  }, [days, revision])
+  }, [days])
 
-  function refresh(nextDays = days) {
-    setData(null)
+  function refresh(nextDays = days, force = true) {
     setError('')
     setDays(nextDays)
-    setRevision((value) => value + 1)
+    void getStats(nextDays, force).catch((err) => {
+      setError(err instanceof Error ? err.message : 'Statistics could not be loaded.')
+    })
   }
 
+  const data = cachedStats[days] || null
+  const displayError = error || statsError
+  const showInitialLoader = !data && statsLoading
+
   return <div className={ui.page}>
-    <div className={ui.toolbar}><h2>Gateway overview</h2><div className={ui.actions}>
-      <select className={ui.select} aria-label="Dashboard period" value={days} onChange={(event) => refresh(Number(event.target.value))}>{[7, 14, 30].map((value) => <option key={value} value={value}>Last {value} days</option>)}</select>
-      <button type="button" className={ui.iconButton} aria-label="Refresh dashboard" title="Refresh dashboard" onClick={() => refresh()}><RefreshCw size={15} /></button>
-    </div></div>
-    {error && <div className={ui.error} role="alert">{error}<button className={ui.button} type="button" onClick={() => refresh()}>Retry</button></div>}
-    {!data && !error && <div className={ui.loading} role="status"><LoaderCircle className={ui.spinner} size={20} />Loading statistics</div>}
+    <div className={ui.toolbar}>
+      <h2>Gateway overview</h2>
+      <div className={ui.actions}>
+        <select
+          className={ui.select}
+          aria-label="Dashboard period"
+          value={days}
+          disabled={statsLoading}
+          onChange={(event) => refresh(Number(event.target.value), false)}
+        >
+          {[7, 14, 30].map((value) => <option key={value} value={value}>Last {value} days</option>)}
+        </select>
+        <button
+          type="button"
+          className={ui.iconButton}
+          aria-label="Refresh dashboard"
+          title="Refresh dashboard"
+          disabled={statsLoading || statsRefreshing}
+          onClick={() => refresh(days, true)}
+        >
+          <RefreshCw size={15} className={statsRefreshing || statsLoading ? ui.spinner : ''} />
+        </button>
+      </div>
+    </div>
+    {displayError && <div className={ui.error} role="alert">{displayError}<button className={ui.button} type="button" onClick={() => refresh(days, true)}>Retry</button></div>}
+    {showInitialLoader && !displayError && (
+      <div className={ui.loading} role="status">
+        <LoaderCircle className={ui.spinner} size={20} />
+        <span>Loading statistics</span>
+      </div>
+    )}
     {data && <>
       <div className={styles.kpis}>
         <KpiCard label="Requests" value={data.totals.requests.toLocaleString()} detail={`${days} UTC calendar days`} icon={MessageSquare} />

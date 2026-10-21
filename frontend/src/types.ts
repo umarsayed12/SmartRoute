@@ -86,7 +86,7 @@ export interface Health {
 
 export interface Tier {
   name: TierName
-  provider: 'ollama' | 'openai_compatible' | 'openai' | 'anthropic'
+  provider: 'ollama' | 'openai_compatible' | 'openai' | 'anthropic' | 'groq'
   model: string
   base_url: string
   input_price_per_1k: number
@@ -133,7 +133,7 @@ export interface RequestDetail extends RequestSummary {
 
 export interface ProviderCredential {
   id: string
-  provider: 'openai' | 'anthropic'
+  provider: 'openai' | 'anthropic' | 'groq'
   label: string
   key_suffix: string
   created_at?: string
@@ -143,7 +143,7 @@ export interface ConfiguredModel {
   id: string
   tier: TierName
   credential_id: string
-  provider: 'openai' | 'anthropic'
+  provider: 'openai' | 'anthropic' | 'groq'
   model: string
   input_price_per_1k: number
   output_price_per_1k: number

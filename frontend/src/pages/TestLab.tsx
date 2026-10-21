@@ -1,9 +1,10 @@
 // Run prompt suites and sequential comparisons while retaining completed results and history.
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Check, ChevronLeft, ChevronRight, CircleDollarSign, Clock3, FlaskConical, Layers3, LoaderCircle, Play, RefreshCw, Target, X } from 'lucide-react'
+import { ArrowUpRight, Check, ChevronLeft, ChevronRight, CircleDollarSign, Clock3, Layers3, LoaderCircle, Play, RefreshCw, Target, X } from 'lucide-react'
 import { api } from '../api'
+import { useData } from '../data'
 import { formatCost, formatLatency } from '../format'
-import type { Page, RunMode, Suite, TestLabResult, TestLabRun } from '../types'
+import type { RunMode, TestLabResult, TestLabRun } from '../types'
 import DataTable from '../components/DataTable'
 import type { Column } from '../components/DataTable'
 import KpiCard from '../components/KpiCard'
@@ -16,15 +17,20 @@ const modeNames: Record<RunMode, string> = { auto: 'Auto', small: 'Small-only', 
 type ResultRow = TestLabResult['results'][number]
 
 export default function TestLab({ visible }: { visible: boolean }) {
-  const [suites, setSuites] = useState<Suite[]>([])
+  const {
+    suites: cachedSuites,
+    testLabRuns: history,
+    testLabLoading,
+    testLabError,
+    getTestLabData,
+    invalidateTestLab,
+  } = useData()
+
+  const suites = cachedSuites ?? []
   const [suite, setSuite] = useState('default')
   const [mode, setMode] = useState<RunMode>('auto')
   const [limit, setLimit] = useState('40')
-  const [history, setHistory] = useState<Page<TestLabRun> | null>(null)
   const [offset, setOffset] = useState(0)
-  const [revision, setRevision] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState('')
   const [runError, setRunError] = useState('')
   const [planned, setPlanned] = useState<RunMode[]>([])
   const [results, setResults] = useState<TestLabResult[]>([])
@@ -32,30 +38,27 @@ export default function TestLab({ visible }: { visible: boolean }) {
   const [running, setRunning] = useState<RunMode | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const operation = useRef<AbortController | null>(null)
+
   const maximum = suites.find((item) => item.id === suite)?.count ?? 40
   const parsedLimit = limit.trim() ? Number(limit) : undefined
   const validLimit = parsedLimit === undefined || (Number.isInteger(parsedLimit) && parsedLimit >= 1 && parsedLimit <= maximum)
 
   useEffect(() => () => operation.current?.abort(), [])
+
   useEffect(() => {
     if (!visible) return
-    const controller = new AbortController()
-    Promise.all([api.suites(controller.signal), api.runs(10, offset, controller.signal)]).then(([available, runs]) => {
-      if (controller.signal.aborted) return
-      setSuites(available)
-      setSuite((current) => available.some((item) => item.id === current) ? current : available[0]?.id ?? '')
-      setHistory(runs)
-    }).catch((failure: unknown) => {
-      if (!controller.signal.aborted) setLoadError(failure instanceof Error ? failure.message : 'Test Lab could not be loaded.')
-    }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    return () => controller.abort()
-  }, [visible, revision, offset])
+    void getTestLabData(offset, false)
+  }, [visible, offset])
 
-  function refresh(nextOffset = 0) {
-    setLoading(true)
-    setLoadError('')
+  useEffect(() => {
+    if (suites.length > 0 && !suites.some((item) => item.id === suite)) {
+      setSuite(suites[0].id)
+    }
+  }, [suites, suite])
+
+  function refresh(nextOffset = offset) {
     setOffset(nextOffset)
-    setRevision((value) => value + 1)
+    void getTestLabData(nextOffset, true)
   }
 
   async function execute(compare: boolean) {
@@ -80,7 +83,11 @@ export default function TestLab({ visible }: { visible: boolean }) {
       if (!controller.signal.aborted) setRunError(failure instanceof Error ? failure.message : 'The suite run failed.')
     } finally {
       operation.current = null
-      if (!controller.signal.aborted) { setRunning(null); refresh() }
+      if (!controller.signal.aborted) {
+        setRunning(null)
+        invalidateTestLab()
+        refresh(0)
+      }
     }
   }
 
@@ -104,9 +111,23 @@ export default function TestLab({ visible }: { visible: boolean }) {
     { id: 'saved', label: 'Saved', render: (row) => `${row.summary.saved_pct.toFixed(1)}%` },
   ]
 
+  const displayError = testLabError
+
   return <div className={ui.page}>
-    <div className={ui.toolbar}><h2>Prompt suites</h2><button className={ui.iconButton} type="button" aria-label="Refresh Test Lab" title="Refresh Test Lab" onClick={() => refresh()} disabled={loading}><RefreshCw size={15} /></button></div>
-    {loadError && <div className={ui.error} role="alert">{loadError}<button type="button" className={ui.button} onClick={() => refresh()}>Retry</button></div>}
+    <div className={ui.toolbar}>
+      <h2>Prompt suites</h2>
+      <button
+        className={ui.iconButton}
+        type="button"
+        aria-label="Refresh Test Lab"
+        title="Refresh Test Lab"
+        onClick={() => refresh()}
+        disabled={testLabLoading}
+      >
+        <RefreshCw size={15} className={testLabLoading ? ui.spinner : ''} />
+      </button>
+    </div>
+    {displayError && <div className={ui.error} role="alert">{displayError}<button type="button" className={ui.button} onClick={() => refresh()}>Retry</button></div>}
     <form className={styles.controls} onSubmit={(event) => { event.preventDefault(); void execute(false) }}>
       <label className={ui.field}>Suite<select value={suite} onChange={(event) => setSuite(event.target.value)} disabled={running !== null || !suites.length}>{!suites.length && <option value="default">Unavailable</option>}{suites.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.count} prompts)</option>)}</select></label>
       <label className={ui.field}>Mode<select value={mode} onChange={(event) => setMode(event.target.value as RunMode)} disabled={running !== null}>{Object.entries(modeNames).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -130,10 +151,35 @@ export default function TestLab({ visible }: { visible: boolean }) {
       })}
     </div>}
     {!!results.length && <section className={ui.section}><div className={ui.toolbar}><h2>Prompt results</h2>{results.length > 1 && <div className={styles.tabs} role="tablist" aria-label="Comparison results">{results.map((result, index) => <button key={result.run_id} type="button" role="tab" aria-selected={activeResult === index} className={activeResult === index ? styles.activeTab : ''} onClick={() => setActiveResult(index)}>{modeNames[result.mode]}</button>)}</div>}</div><DataTable rows={results[activeResult]?.results ?? []} columns={resultColumns} rowKey={(row) => row.id} label="Prompt results" /></section>}
-    <section className={ui.section}><h2 className={ui.sectionTitle}>Run history</h2>{loading && !history ? <div className={ui.loading} role="status"><FlaskConical size={18} />Loading run history</div> : history && <>
-      <DataTable rows={history.items} columns={historyColumns} rowKey={(row) => row.run_id} label="Test Lab run history" emptyText="No completed runs" />
-      <div className={styles.pagination}><span>{history.total} completed runs</span><div className={ui.actions}><button type="button" className={ui.iconButton} title="Previous runs" aria-label="Previous runs" disabled={offset === 0 || loading} onClick={() => refresh(Math.max(0, offset - 10))}><ChevronLeft size={15} /></button><button type="button" className={ui.iconButton} title="Next runs" aria-label="Next runs" disabled={offset + 10 >= history.total || loading} onClick={() => refresh(offset + 10)}><ChevronRight size={15} /></button></div></div>
-    </>}</section>
+    <section className={ui.section}><h2 className={ui.sectionTitle}>Run history</h2>
+      {testLabLoading && !history ? (
+        <div className={ui.loading} role="status">
+          <LoaderCircle className={ui.spinner} size={18} />
+          <span>Loading run history</span>
+        </div>
+      ) : history && <>
+        <DataTable
+          rows={history.items}
+          columns={historyColumns}
+          rowKey={(row) => row.run_id}
+          label="Test Lab run history"
+          loading={testLabLoading}
+          loadingText="Updating run history..."
+          emptyText="No completed runs"
+        />
+        <div className={styles.pagination}>
+          <span>{history.total} completed runs</span>
+          <div className={ui.actions}>
+            <button type="button" className={ui.iconButton} title="Previous runs" aria-label="Previous runs" disabled={offset === 0 || testLabLoading} onClick={() => refresh(Math.max(0, offset - 10))}>
+              <ChevronLeft size={15} />
+            </button>
+            <button type="button" className={ui.iconButton} title="Next runs" aria-label="Next runs" disabled={offset + 10 >= history.total || testLabLoading} onClick={() => refresh(offset + 10)}>
+              <ChevronRight size={15} />
+            </button>
+          </div>
+        </div>
+      </>}
+    </section>
     {selected && <RequestDrawer key={selected} requestId={selected} onClose={() => setSelected(null)} onRated={() => refresh()} />}
   </div>
 }

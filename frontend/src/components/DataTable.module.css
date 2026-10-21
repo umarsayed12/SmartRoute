@@ -1,9 +1,23 @@
 /* Dense data rows with contained horizontal scrolling instead of page overflow. */
-.wrap { max-width: 100%; min-width: 0; overflow-x: auto; border-top: 1px solid var(--border); }
+.wrap { position: relative; max-width: 100%; min-width: 0; overflow-x: auto; border-top: 1px solid var(--border); }
 .table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; }
+.loadingTable { opacity: 0.55; transition: opacity 0.2s ease-in-out; pointer-events: none; }
+.progressBar { position: absolute; top: 0; left: 0; right: 0; height: 2px; overflow: hidden; background: transparent; z-index: 5; }
+.progressBar::after { content: ''; position: absolute; top: 0; left: 0; height: 100%; width: 40%; background: var(--accent); animation: progressSlide 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+@keyframes progressSlide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
 .table th { padding: 12px 14px; color: var(--muted); font-size: 10px; font-weight: 500; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .table td { padding: 15px 14px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
 .table td:not(:first-child) { white-space: nowrap; }
 .table tbody tr:hover { background: rgb(133 221 184 / 3%); }
 .table th:first-child, .table td:first-child { padding-left: 4px; }
 .empty { padding: 45px 20px; text-align: center; color: var(--muted); font-size: 12px; }
+.loadingState { display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.spinner { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+  .progressBar::after { animation: none; width: 100%; }
+}

@@ -1,9 +1,9 @@
 // Show workspace readiness and published SDK examples without copying or retaining credentials.
 import { useEffect, useState } from 'react'
-import { ArrowUpRight, Check, Circle, Copy, RefreshCw } from 'lucide-react'
+import { ArrowUpRight, Check, Circle, Copy, LoaderCircle, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { api } from '../api'
 import { useAuth } from '../auth'
+import { useData } from '../data'
 import ui from './Workspace.module.css'
 import styles from './Integration.module.css'
 
@@ -11,7 +11,7 @@ interface Props { modelsReady: boolean | null; onRefresh: () => void }
 
 export default function Integration({ modelsReady, onRefresh }: Props) {
   const auth = useAuth()
-  const [revision, setRevision] = useState(0)
+  const { keys: cachedKeys, refreshKeys, getRequestsPage } = useData()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeKeys, setActiveKeys] = useState<number | null>(null)
@@ -27,17 +27,31 @@ export default function Integration({ modelsReady, onRefresh }: Props) {
     ? `$secureKey = Read-Host 'SmartRoute gateway key' -AsSecureString\n$env:SMARTROUTE_API_KEY = [System.Net.NetworkCredential]::new('', $secureKey).Password\n$env:SMARTROUTE_BASE_URL = '${baseUrl}'\n.\\.venv\\Scripts\\smartroute.exe models\n.\\.venv\\Scripts\\smartroute.exe chat "Hello" --max-tokens 64\nRemove-Item Env:SMARTROUTE_API_KEY\nRemove-Variable secureKey`
     : `read -r -s -p 'SmartRoute gateway key: ' SMARTROUTE_API_KEY\nprintf '\\n'\nexport SMARTROUTE_API_KEY\nexport SMARTROUTE_BASE_URL='${baseUrl}'\n.venv/bin/smartroute models\n.venv/bin/smartroute chat "Hello" --max-tokens 64\nunset SMARTROUTE_API_KEY`
 
-  useEffect(() => {
-    const controller = new AbortController()
-    Promise.all([api.keys(controller.signal), api.requests({ source: 'sdk', limit: 1 }, controller.signal)]).then(([keys, requests]) => {
-      if (controller.signal.aborted) return
-      setActiveKeys(keys.filter((key) => !key.revoked_at && (!key.expires_at || new Date(key.expires_at).getTime() > Date.now())).length)
+  async function loadIntegration(force = false) {
+    setLoading(true)
+    setError('')
+    try {
+      if (force || !cachedKeys) {
+        await refreshKeys()
+      }
+      const requests = await getRequestsPage({ source: 'sdk' }, 1, 0, force)
       setSdkRequests(requests.total)
-      setError('')
-    }).catch((failure: unknown) => { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : 'Integration status is unavailable.') })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
-    return () => controller.abort()
-  }, [revision])
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Integration status is unavailable.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadIntegration(false)
+  }, [])
+
+  useEffect(() => {
+    if (cachedKeys) {
+      setActiveKeys(cachedKeys.filter((key) => !key.revoked_at && (!key.expires_at || new Date(key.expires_at).getTime() > Date.now())).length)
+    }
+  }, [cachedKeys])
 
   async function copy(value: string, name: string) {
     try { await navigator.clipboard.writeText(value); setCopied(name); setCopyError('') }
@@ -52,9 +66,38 @@ export default function Integration({ modelsReady, onRefresh }: Props) {
   ]
 
   return <div className={ui.page}>
-    <div className={ui.toolbar}><h2>Workspace integration</h2><button type="button" className={ui.iconButton} title="Refresh integration status" aria-label="Refresh integration status" disabled={loading} onClick={() => { setLoading(true); setActiveKeys(null); setSdkRequests(null); setRevision((value) => value + 1); onRefresh() }}><RefreshCw size={15} /></button></div>
+    <div className={ui.toolbar}>
+      <h2>Workspace integration</h2>
+      <button
+        type="button"
+        className={ui.iconButton}
+        title="Refresh integration status"
+        aria-label="Refresh integration status"
+        disabled={loading}
+        onClick={() => {
+          setActiveKeys(null)
+          setSdkRequests(null)
+          void loadIntegration(true)
+          onRefresh()
+        }}
+      >
+        <RefreshCw size={15} className={loading ? ui.spinner : ''} />
+      </button>
+    </div>
     {error && <div className={ui.error} role="alert">{error}</div>}
-    <ol className={styles.steps}>{steps.map((step) => <li key={step.label}><span className={step.ready ? ui.good : ui.muted}>{step.ready ? <Check size={17} /> : <Circle size={17} />}</span><Link to={step.href}>{step.label}<ArrowUpRight size={13} /></Link><span className={ui.muted}>{error && step.value === 'Checking' ? 'Unavailable' : step.value}</span></li>)}</ol>
+    <ol className={styles.steps}>
+      {steps.map((step) => (
+        <li key={step.label}>
+          <span className={step.ready ? ui.good : ui.muted}>{step.ready ? <Check size={17} /> : <Circle size={17} />}</span>
+          <Link to={step.href}>{step.label}<ArrowUpRight size={13} /></Link>
+          <span className={ui.muted}>
+            {error && step.value === 'Checking' ? 'Unavailable' : step.value === 'Checking' ? (
+              <span className={ui.row}><LoaderCircle className={ui.spinner} size={12} />Checking</span>
+            ) : step.value}
+          </span>
+        </li>
+      ))}
+    </ol>
     <section className={ui.section}><h3 className={ui.sectionTitle}>Gateway URL</h3><div className={styles.endpoint}><code>{baseUrl}</code><button type="button" className={ui.iconButton} title="Copy gateway URL" aria-label="Copy gateway URL" onClick={() => void copy(baseUrl, 'Gateway URL')}><Copy size={14} /></button></div></section>
     <section className={ui.section}>
       <div className={ui.toolbar}><h3 className={ui.sectionTitle}>Install SDK <span className={styles.badge}>PyPI 0.1.0</span></h3><fieldset className={styles.switches} aria-label="Command shell">{(['powershell', 'posix'] as const).map((value) => <label key={value}><input type="radio" name="command-shell" checked={shell === value} onChange={() => { setShell(value); setCopied('') }} />{value === 'powershell' ? 'PowerShell' : 'Bash'}</label>)}</fieldset></div>

@@ -1,7 +1,7 @@
 // Filter and page through request history, with a full-detail feedback drawer.
 import { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, Search, X } from 'lucide-react'
-import { api } from '../api'
+import { useData } from '../data'
 import type { Page, RequestFilters, RequestSummary, TierName } from '../types'
 import { formatCost, formatLatency } from '../format'
 import DataTable from '../components/DataTable'
@@ -12,40 +12,43 @@ import ui from './Workspace.module.css'
 import styles from './Requests.module.css'
 
 export default function Requests() {
+  const { getRequestsPage, requestsLoading, requestsError, invalidateRequests } = useData()
   const [filters, setFilters] = useState<RequestFilters>({})
   const [search, setSearch] = useState('')
   const [offset, setOffset] = useState(0)
   const [limit, setLimit] = useState(20)
-  const [revision, setRevision] = useState(0)
   const [data, setData] = useState<Page<RequestSummary> | null>(null)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
 
-  useEffect(() => {
-    const controller = new AbortController()
-    api.requests({ ...filters, limit, offset }, controller.signal).then((result) => {
-      if (controller.signal.aborted) return
-      if (offset > 0 && offset >= result.total) {
-        setOffset(Math.max(0, Math.floor((result.total - 1) / limit) * limit))
+  async function loadData(nextFilters = filters, nextLimit = limit, nextOffset = offset, force = false) {
+    setError('')
+    try {
+      const result = await getRequestsPage(nextFilters, nextLimit, nextOffset, force)
+      if (nextOffset > 0 && nextOffset >= result.total) {
+        const adjusted = Math.max(0, Math.floor((result.total - 1) / nextLimit) * nextLimit)
+        setOffset(adjusted)
         return
       }
       setData(result)
-    }).catch((failure: unknown) => {
-      if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : 'Request history could not be loaded.')
-    })
-    return () => controller.abort()
-  }, [filters, limit, offset, revision])
-
-  function reload(nextOffset = offset) {
-    setData(null)
-    setError('')
-    setOffset(nextOffset)
-    setRevision((value) => value + 1)
+      setOffset(nextOffset)
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Request history could not be loaded.')
+    }
   }
 
+  useEffect(() => {
+    void loadData(filters, limit, offset, false)
+  }, [filters, limit, offset])
+
   function filter(updates: Partial<RequestFilters>) {
-    setFilters((current) => ({ ...current, ...updates }))
-    reload(0)
+    const nextFilters = { ...filters, ...updates }
+    setFilters(nextFilters)
+    setOffset(0)
+  }
+
+  function reload(nextOffset = offset, force = true) {
+    void loadData(filters, limit, nextOffset, force)
   }
 
   const columns: Column<RequestSummary>[] = [
@@ -60,25 +63,66 @@ export default function Requests() {
     { id: 'feedback', label: 'Feedback', render: (row) => <span className={row.feedback === null ? ui.muted : row.feedback === 1 ? ui.good : ui.bad}>{row.feedback === null ? 'Unrated' : row.feedback === 1 ? 'Positive' : 'Negative'}</span> },
   ]
 
+  const displayError = error || requestsError
+  const showInitialLoader = !data && requestsLoading
+
   return <div className={ui.page}>
-    <div className={ui.toolbar}><h2>Request history</h2><button type="button" className={ui.iconButton} aria-label="Refresh requests" title="Refresh requests" onClick={() => reload()}><RefreshCw size={15} /></button></div>
+    <div className={ui.toolbar}>
+      <h2>Request history</h2>
+      <button
+        type="button"
+        className={ui.iconButton}
+        aria-label="Refresh requests"
+        title="Refresh requests"
+        disabled={requestsLoading}
+        onClick={() => reload(offset, true)}
+      >
+        <RefreshCw size={15} className={requestsLoading ? ui.spinner : ''} />
+      </button>
+    </div>
     <div className={styles.filters}>
-      <form className={styles.search} onSubmit={(event) => { event.preventDefault(); filter({ search: search.trim() || undefined }) }}><label className={ui.field}>Search<input aria-label="Search requests" placeholder="Prompt or answer" value={search} onChange={(event) => setSearch(event.target.value)} /></label><button type="submit" className={ui.iconButton} aria-label="Search request history" title="Search"><Search size={15} /></button></form>
+      <form className={styles.search} onSubmit={(event) => { event.preventDefault(); filter({ search: search.trim() || undefined }) }}>
+        <label className={ui.field}>Search<input aria-label="Search requests" placeholder="Prompt or answer" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+        <button type="submit" className={ui.iconButton} aria-label="Search request history" title="Search"><Search size={15} /></button>
+      </form>
       <label className={ui.field}>Tier<select value={filters.tier ?? ''} onChange={(event) => filter({ tier: event.target.value ? event.target.value as TierName : undefined })}><option value="">All tiers</option>{['small', 'medium', 'large'].map((tier) => <option key={tier}>{tier}</option>)}</select></label>
       <label className={ui.field}>Escalated<select value={filters.escalated === undefined ? '' : String(filters.escalated)} onChange={(event) => filter({ escalated: event.target.value === '' ? undefined : event.target.value === 'true' })}><option value="">All</option><option value="true">Yes</option><option value="false">No</option></select></label>
       <label className={ui.field}>Feedback<select value={filters.feedback ?? ''} onChange={(event) => filter({ feedback: event.target.value === '' ? undefined : Number(event.target.value) as -1 | 0 | 1 })}><option value="">All ratings</option><option value="1">Positive</option><option value="-1">Negative</option><option value="0">Unrated</option></select></label>
       <label className={ui.field}>Source<select value={filters.source ?? ''} onChange={(event) => filter({ source: event.target.value ? event.target.value as RequestSummary['source'] : undefined })}><option value="">All sources</option>{['api', 'playground', 'testlab', 'sdk'].map((source) => <option key={source}>{source}</option>)}</select></label>
-      <button type="button" className={ui.iconButton} title="Reset filters" aria-label="Reset request filters" onClick={() => { setSearch(''); setFilters({}); reload(0) }}><X size={15} /></button>
+      <button type="button" className={ui.iconButton} title="Reset filters" aria-label="Reset request filters" onClick={() => { setSearch(''); setFilters({}); setOffset(0) }}><X size={15} /></button>
     </div>
-    {error && <div className={ui.error} role="alert">{error}<button type="button" className={ui.button} onClick={() => reload()}>Retry</button></div>}
-    {!data && !error && <div className={ui.loading} role="status"><LoaderCircle className={ui.spinner} size={20} />Loading requests</div>}
-    {data && <><DataTable rows={data.items} columns={columns} rowKey={(row) => row.id} label="Request history" />
-      <div className={styles.pagination}><span>{data.total ? `${offset + 1}-${Math.min(offset + data.items.length, data.total)} of ${data.total}` : '0 requests'}</span><div className={ui.actions}>
-        <select className={ui.select} aria-label="Requests per page" value={limit} onChange={(event) => { setLimit(Number(event.target.value)); reload(0) }}>{[20, 50, 100].map((size) => <option key={size} value={size}>{size} / page</option>)}</select>
-        <button type="button" className={ui.iconButton} aria-label="Previous request page" title="Previous page" disabled={offset === 0} onClick={() => reload(Math.max(0, offset - limit))}><ChevronLeft size={16} /></button>
-        <button type="button" className={ui.iconButton} aria-label="Next request page" title="Next page" disabled={offset + limit >= data.total} onClick={() => reload(offset + limit)}><ChevronRight size={16} /></button>
-      </div></div>
+    {displayError && <div className={ui.error} role="alert">{displayError}<button type="button" className={ui.button} onClick={() => reload(offset, true)}>Retry</button></div>}
+    {showInitialLoader && !displayError && (
+      <div className={ui.loading} role="status">
+        <LoaderCircle className={ui.spinner} size={20} />
+        <span>Loading requests</span>
+      </div>
+    )}
+    {data && <>
+      <DataTable
+        rows={data.items}
+        columns={columns}
+        rowKey={(row) => row.id}
+        label="Request history"
+        loading={requestsLoading}
+        loadingText="Updating requests..."
+        emptyText="No matching requests found"
+      />
+      <div className={styles.pagination}>
+        <span>{data.total ? `${offset + 1}-${Math.min(offset + data.items.length, data.total)} of ${data.total}` : '0 requests'}</span>
+        <div className={ui.actions}>
+          <select className={ui.select} aria-label="Requests per page" value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setOffset(0) }}>
+            {[20, 50, 100].map((size) => <option key={size} value={size}>{size} / page</option>)}
+          </select>
+          <button type="button" className={ui.iconButton} aria-label="Previous request page" title="Previous page" disabled={offset === 0 || requestsLoading} onClick={() => setOffset(Math.max(0, offset - limit))}>
+            <ChevronLeft size={16} />
+          </button>
+          <button type="button" className={ui.iconButton} aria-label="Next request page" title="Next page" disabled={offset + limit >= data.total || requestsLoading} onClick={() => setOffset(offset + limit)}>
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
     </>}
-    {selected && <RequestDrawer key={selected} requestId={selected} onClose={() => setSelected(null)} onRated={() => reload(0)} />}
+    {selected && <RequestDrawer key={selected} requestId={selected} onClose={() => setSelected(null)} onRated={() => { invalidateRequests(); reload(offset, true) }} />}
   </div>
 }
